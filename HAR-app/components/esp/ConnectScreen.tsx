@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
-import { EspConnectionTable, EspStatus } from "./EspConnectionTable";
+import { EspConnectionTable } from "./EspConnectionTable";
+import { EspStatus } from "@/app/types/espTypes";
+import { espStatusApi } from "@/app/apis/espStatusApi";
 
 export default function ConnectScreen() {
   const [esps, setEsps] = useState<EspStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const { getEspStatus } = espStatusApi();
 
   const fetchEspStatuses = async () => {
     try {
-      // TEMP SIMULATION: some devices still loading state
-      const data: EspStatus[] = [
-        { id: 1, isConnected: true },
-        { id: 2, isConnected: false },
-        { id: 3, isConnected: null },
-        { id: 4, isConnected: null },
-      ];
-      setEsps(data);
+      try {
+        const data = await getEspStatus();
+        setEsps(data);
+      } catch (e: any) {
+        console.error("ESP fetch error:", e.message);
+      }
     } catch (e) {
       console.error("Failed to fetch ESP statuses", e);
     } finally {

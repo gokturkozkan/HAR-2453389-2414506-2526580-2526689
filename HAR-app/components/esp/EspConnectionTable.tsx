@@ -1,11 +1,7 @@
 import React from "react";
 import { ScrollView, View, StyleSheet } from "react-native";
 import { EspConnectionCard } from "./EspConnectionCard";
-
-export interface EspStatus {
-  id: number;
-  isConnected: boolean | null;
-}
+import { EspStatus } from "@/app/types/espTypes";
 
 interface EspConnectionTableProps {
   esps: EspStatus[];
