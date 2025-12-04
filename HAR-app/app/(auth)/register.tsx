@@ -11,14 +11,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HelloWave } from "@/components/hello-wave";
 import { router } from "expo-router";
+import { registerApi } from "../apis/registerApi";
 
 export default function RegisterScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { register } = registerApi();
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!username && !password && !confirmPassword) {
       setError("Please fill all fields.");
     } else if (!username) {
@@ -31,7 +33,19 @@ export default function RegisterScreen() {
       setError("Passwords do not match.");
     } else {
       setError(null);
-      router.replace("/home");
+      //ROUTE FOR NOW
+      router.replace("/(tabs)");
+    }
+    try {
+      setError(null);
+      const data = await register({ username, password })
+      
+      console.log("TOKEN:", data.token);
+      console.log("USER:", data.user);
+
+      router.replace("/(tabs)");
+      } catch (e: any) {
+        setError(e.message);
     }
   };
 
@@ -88,7 +102,7 @@ export default function RegisterScreen() {
               </Pressable>
 
               <Pressable
-                onPress={() => router.replace("/")}
+                onPress={() => router.replace("/login")}
                 style={styles.registerButton}
               >
                 <Text style={styles.registerText}>

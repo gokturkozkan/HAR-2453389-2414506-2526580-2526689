@@ -1,91 +1,28 @@
-import { useState } from "react";
-import {
-  View,
-  Text,
-  KeyboardAvoidingView,
-  StyleSheet,
-  TextInput,
-  Pressable,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { HelloWave } from "@/components/hello-wave";
+import { Pressable } from "react-native";
 import { router } from "expo-router";
 
-export default function LoginScreen() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+const handleConnection = () => {
+  router.replace("/connect");
+};
 
-  const handleLogin = () => {
-    if (!username && !password) {
-      setError("Please enter username and password.");
-    } else if (!username) {
-      setError("Please enter username.");
-    } else if (!password) {
-      setError("Please enter password.");
-    } else {
-      setError(null);
-      router.replace("/home");
-    }
-  };
-
+export default function HomeScreen() {
   return (
-    <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+    <SafeAreaView style = {styles.safe}>
+      <View style={styles.container}>
         <View style={styles.inner}>
           <View style={styles.card}>
-            <View style={styles.headerContainer}>
-              <View style={styles.row}>
-                <Text style={styles.title}>Welcome</Text>
-                <View style={{ marginLeft: 8 }}>
-                  <HelloWave />
-                </View>
-              </View>
-              <Text style={styles.subtitle}>Sign in to continue</Text>
-            </View>
-
-            <View style={styles.form}>
-              <Text style={styles.label}>Username</Text>
-              <TextInput
-                style={styles.input}
-                value={username}
-                onChangeText={setUsername}
-                placeholder="Enter username"
-                autoCapitalize="none"
-              />
-
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter password"
-                secureTextEntry
-              />
-
-              {error && <Text style={styles.error}>{error}</Text>}
-
-              <Pressable style={styles.button} onPress={handleLogin}>
-                <Text style={styles.buttonText}>Login</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.push("/register")}
-                style={styles.registerButton}
-              >
-                <Text style={styles.registerText}>
-                  Don’t have an account? <Text style={styles.registerLink}>Register</Text>
-                </Text>
-              </Pressable>
-            </View>
+            <Text style={styles.title}>Get started</Text>
+            <Text>Welcome to the HAR app.</Text>
+            <Pressable style={styles.button} onPress={handleConnection}>
+              <Text style={styles.buttonText}>Connect</Text>
+            </Pressable>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
+
   );
 }
 
@@ -166,17 +103,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "white",
-  },
-    registerButton: {
-    alignItems: "center",
-    marginTop: 12,
-  },
-  registerText: {
-    fontSize: 14,
-    opacity: 0.8,
-  },
-  registerLink: {
-    color: "#3a547dff",
-    fontWeight: "600",
   },
 });
