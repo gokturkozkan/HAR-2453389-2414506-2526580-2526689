@@ -1,0 +1,90 @@
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using UnityEngine;
+using Debug = UnityEngine.Debug;
+
+public class LabelDataReader : MonoBehaviour
+{
+    [Header("Config")]
+    [Tooltip("Path to unity_commands.json/log. " +
+             "Leave empty to use <ProjectRoot>/Python/unity_commands.log")]
+    public string logFilePath = "";
+
+    [Header("Target Data")]
+    [SerializeField]
+    public LabelData targetLabelData;   // ScriptableObject to fill
+
+    private void Start()
+    {
+        ResolveLogPathIfEmpty();
+    }
+
+    // You call this from a UI Button
+    public void ReadAndApply()
+    {
+        if (targetLabelData == null)
+        {
+            Debug.LogWarning("[LabelJsonReader] No LabelData ScriptableObject assigned.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(logFilePath))
+        {
+            Debug.LogWarning("[LabelJsonReader] logFilePath is empty.");
+            return;
+        }
+
+        if (!File.Exists(logFilePath))
+        {
+            Debug.LogWarning($"[LabelJsonReader] Log file not found at: {logFilePath}");
+            return;
+        }
+
+        try
+        {
+            string json = File.ReadAllText(logFilePath);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                Debug.LogWarning("[LabelJsonReader] Log file is empty.");
+                return;
+            }
+
+            var cmd = JsonUtility.FromJson<LabelDataContainer>(json);
+            if (cmd == null)
+            {
+                Debug.LogWarning($"[LabelJsonReader] Failed to parse JSON: {json}");
+                return;
+            }
+
+            // Apply to ScriptableObject
+            targetLabelData.label = cmd.label;
+            targetLabelData.timestamp = cmd.timestamp;
+            targetLabelData.source = cmd.source;
+
+            Debug.Log($"[LabelJsonReader] Updated SO -> label='{cmd.label}', source='{cmd.source}'");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[LabelJsonReader] Error reading/parsing JSON: {e}");
+        }
+    }
+
+    private void ResolveLogPathIfEmpty()
+    {
+        if (!string.IsNullOrEmpty(logFilePath))
+        {
+            logFilePath = Path.GetFullPath(logFilePath);
+            return;
+        }
+
+        // Default: <ProjectRoot>/Python/unity_commands.log
+        string scriptDir = Path.Combine(Application.dataPath, "../Python");
+        scriptDir = Path.GetFullPath(scriptDir);
+        logFilePath = Path.Combine(scriptDir, "unity_commands.log");
+        logFilePath = Path.GetFullPath(logFilePath);
+
+        Debug.Log($"[LabelJsonReader] Using log file: {logFilePath}");
+    }
+}
+
