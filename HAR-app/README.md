@@ -1,50 +1,134 @@
-# Welcome to your Expo app 👋
+HAR Mobile App – Developer Guide
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This project is a React Native / Expo mobile client for a Human Activity Recognition (HAR) system.
+The app handles:
 
-## Get started
+User authentication (login / register)
 
-1. Install dependencies
+Connecting to a set of ESP devices
 
-   ```bash
-   npm install
-   ```
+Displaying connection status for each ESP
 
-2. Start the app
+This document explains:
 
-   ```bash
-   npx expo start
-   ```
+How the app is structured
 
-In the output, you'll find options to open the app in a
+How it expects to talk to the backend
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+What each UI screen does and how it fits in the flow
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+High-Level Architecture
 
-## Get a fresh project
+Conceptually, the app has two layers:
 
-When you're ready, run:
+Auth layer -> (auth)
 
-```bash
-npm run reset-project
-```
+Login screen
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Register screen
 
-## Learn more
+Once authenticated, the user is sent into the main tab navigator.
 
-To learn more about developing your project with Expo, look at the following resources:
+Main app layer -> (tabs)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Home tab – welcome + “Connect” CTA for the user
 
-## Join the community
+Connect tab – shows ESP devices and their connection status
 
-Join our community of developers creating universal apps.
+Communication with the backend is done via simple fetch calls to an API_URL defined in api_url.ts.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Backend Integration
+API Base URL
+
+The app uses an API_URL constant, e.g.:
+
+<img width="615" height="141" alt="image" src="https://github.com/user-attachments/assets/5f7d8846-e3d3-4dc8-b7ee-c0e76e7379a9" />
+
+replace PI with the IP.
+
+Authentication Endpoints
+
+The app expects a simple JSON API for auth. You can adapt routes, but this is the default assumption:
+
+POST /login
+
+Request body:
+
+{
+  "username": "string",
+  "password": "string"
+}
+
+
+Response (success):
+
+{
+  "token": "jwt-or-session-token",
+  "user": {
+    "id": 1,
+    "username": "string"
+  }
+}
+
+
+Response (error, e.g. 401):
+
+{
+  "message": "Invalid username or password"
+}
+
+POST /register
+
+Request body:
+
+{
+  "username": "string",
+  "password": "string"
+}
+
+Response (success):
+
+{
+  "message": "User created",
+  "user": {
+    "id": 1,
+    "username": "string"
+  }
+}
+
+GET /esp-status
+
+Response example:
+
+[
+  { "id": 1, "isConnected": true },
+  { "id": 2, "isConnected": false },
+  { "id": 3, "isConnected": true },
+  { "id": 4, "isConnected": false }
+]
+
+In the app, EspStatus is:
+
+export interface EspStatus {
+  id: number;
+  isConnected: boolean | null; 
+}
+
+Set null if you want a "still connecting" state, boolean -> true means connected, boolean -> false means not connected.
+
+UI Overview
+1. Login Screen
+
+![login](https://github.com/user-attachments/assets/25f16164-86e2-45f1-974f-59eb8eab86d2)
+
+2. Register Screen
+
+![register](https://github.com/user-attachments/assets/a9e712ae-46e4-4dd5-8c75-7d439c926557)
+
+3. Home Screen
+
+![home](https://github.com/user-attachments/assets/6c6115ad-944e-4c3a-a4be-ec29af599c07)
+
+4. Connection screen
+
+![connection](https://github.com/user-attachments/assets/dd93a7fb-3e5e-4d74-baef-91377ee01b04)
