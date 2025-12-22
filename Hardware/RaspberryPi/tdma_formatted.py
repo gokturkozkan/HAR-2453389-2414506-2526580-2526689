@@ -7,22 +7,35 @@ NODE_PORTS = {
     2: "/dev/rfcomm1",
     3: "/dev/rfcomm2",
     4: "/dev/rfcomm3",
+    5: "/dev/rfcomm4",
+    6: "/dev/rfcomm5",
+    7: "/dev/rfcomm6",
 }
 
 BAUDRATE = 115200
-TIMEOUT = 0.2
-FRAME_PERIOD = 1.0
+TIMEOUT = 0.05
+FRAME_PERIOD = 0.28
+
+MAX_WAIT_PER_NODE = 25.0
+
+EARLY_EIO_WINDOW = 2.0
+EARLY_EIO_RETRY_DELAY = 0.25
+
+BACKOFF_BASE = 0.5
+BACKOFF_MAX = 10.0
+RESET_ERRORS_AFTER_OK_SECONDS = 5.0
 
 
 def choose_nodes():
-    print("Available nodes: 1, 2, 3, 4")
+    available = sorted(NODE_PORTS.keys())
+    print("Available nodes:", ", ".join(map(str, available)))
     raw = input(
-        "Enter comma-separated node IDs to use (e.g. 1,2,3,4). "
+        f"Enter comma-separated node IDs to use (e.g. {','.join(map(str, available))}). "
         "Leave empty for all: "
     ).strip()
 
     if not raw:
-        return sorted(NODE_PORTS.keys())
+        return available
 
     nodes = []
     for part in raw.split(","):
@@ -40,38 +53,135 @@ def choose_nodes():
 
     nodes = sorted(set(nodes))
     if not nodes:
-        print("No valid nodes selected, defaulting to all 1-4.")
-        nodes = sorted(NODE_PORTS.keys())
+        print("No valid nodes selected, defaulting to all.")
+        nodes = available
     return nodes
 
 
+def compute_backoff(errors):
+    e = max(0, int(errors))
+    delay = BACKOFF_BASE * (2 ** min(e, 6))
+    return min(delay, BACKOFF_MAX)
+
+
+def close_one(ser):
+    try:
+        if ser is not None and getattr(ser, "is_open", False):
+            ser.close()
+    except Exception:
+        pass
+
+
+def open_one(node_id):
+    port = NODE_PORTS[node_id]
+    try:
+        ser = serial.Serial(port, BAUDRATE, timeout=TIMEOUT, write_timeout=TIMEOUT)
+        time.sleep(0.12)
+        try:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+        except Exception:
+            pass
+        return ser
+    except Exception:
+        return None
+
+
+def make_health(active_nodes):
+    now = time.monotonic()
+    return {
+        nid: {
+            "errors": 0,
+            "next_try": now,
+            "opened_at": 0.0,
+            "last_ok": 0.0,
+        }
+        for nid in active_nodes
+    }
+
+
+def mark_ok(node_id, health):
+    h = health[node_id]
+    now = time.monotonic()
+    if h["last_ok"] and (now - h["last_ok"]) > RESET_ERRORS_AFTER_OK_SECONDS:
+        h["errors"] = 0
+    h["last_ok"] = now
+    h["next_try"] = now
+
+
+def mark_error(node_id, serials, health, early=False):
+    h = health[node_id]
+    now = time.monotonic()
+    if early:
+        h["next_try"] = now + EARLY_EIO_RETRY_DELAY
+    else:
+        h["errors"] += 1
+        h["next_try"] = now + compute_backoff(h["errors"])
+    close_one(serials.get(node_id))
+    serials[node_id] = None
+    h["opened_at"] = 0.0
+
+
+def try_reconnect(node_id, serials, health):
+    h = health[node_id]
+    now = time.monotonic()
+    if now < h["next_try"]:
+        return False
+
+    ser = serials.get(node_id)
+    if ser is not None and getattr(ser, "is_open", False):
+        return True
+
+    ser = open_one(node_id)
+    if ser is None:
+        mark_error(node_id, serials, health, early=False)
+        return False
+
+    serials[node_id] = ser
+    h["opened_at"] = now
+    h["next_try"] = now
+    return True
+
+
 def open_ports(active_nodes):
-    serials = {}
+    serials = {nid: None for nid in active_nodes}
     for node_id in active_nodes:
         port = NODE_PORTS[node_id]
-        try:
-            ser = serial.Serial(port, BAUDRATE, timeout=TIMEOUT)
+        ser = open_one(node_id)
+        if ser is not None:
             print(f"Opened node {node_id} on {port}")
             serials[node_id] = ser
-        except Exception as e:
-            print(f"[ERROR] Could not open {port} for node {node_id}: {e}")
+        else:
+            print(f"[ERROR] Could not open {port} for node {node_id}")
             serials[node_id] = None
     return serials
 
 
-def request_sample(node_id, ser):
-    if ser is None:
+def request_sample(node_id, serials, health):
+    if not try_reconnect(node_id, serials, health):
         return ""
+
+    ser = serials.get(node_id)
+    if ser is None or not getattr(ser, "is_open", False):
+        return ""
+
+    h = health[node_id]
     try:
         ser.write(b"R")
         line = ser.readline().decode(errors="ignore").strip()
+        if line:
+            mark_ok(node_id, health)
         return line
     except (OSError, serial.SerialException) as e:
-        print(f"[ERROR] Node {node_id}: serial I/O error: {e}")
-        try:
-            ser.close()
-        except Exception:
-            pass
+        now = time.monotonic()
+        early = (now - h["opened_at"]) <= EARLY_EIO_WINDOW
+        errno = getattr(e, "errno", None)
+        if errno == 5 and early:
+            print(f"[ERROR] Node {node_id}: serial I/O error: {e}")
+            mark_error(node_id, serials, health, early=True)
+        else:
+            print(f"[ERROR] Node {node_id}: serial I/O error: {e}")
+            mark_error(node_id, serials, health, early=False)
         return ""
 
 
@@ -163,18 +273,18 @@ def print_table(latest, active_nodes):
             )
 
 
-def wait_for_initial_frames(active_nodes, serials, latest):
+def wait_for_initial_frames(active_nodes, serials, latest, health):
     print("\nWaiting for initial data from all selected nodes...")
     for node_id in active_nodes:
-        ser = serials.get(node_id)
-        if ser is None:
-            print(f"[WARN] Node {node_id}: no serial opened, skipping.")
-            continue
-
+        start = time.monotonic()
         while True:
-            line = request_sample(node_id, ser)
+            if time.monotonic() - start > MAX_WAIT_PER_NODE:
+                print(f"[WARN] Node {node_id}: initial data not found, continuing.")
+                break
+
+            line = request_sample(node_id, serials, health)
             parsed = parse_frame(line)
-            if parsed is not None:
+            if parsed is not None and parsed["node_id"] == node_id:
                 latest[node_id] = parsed
                 print(f"  Node {node_id}: first sample received.")
                 break
@@ -182,8 +292,8 @@ def wait_for_initial_frames(active_nodes, serials, latest):
                 print(f"  Node {node_id}: no valid data yet, retrying...")
                 time.sleep(0.5)
 
-    print("Initial TDMA lock acquired. Starting main loop...\n")
-    time.sleep(1.0)
+    print("Starting main loop...\n")
+    time.sleep(0.5)
 
 
 def main():
@@ -191,9 +301,14 @@ def main():
     print(f"Using nodes: {active_nodes}")
 
     serials = open_ports(active_nodes)
+    health = make_health(active_nodes)
     latest = {}
 
-    wait_for_initial_frames(active_nodes, serials, latest)
+    for nid in active_nodes:
+        if serials.get(nid) is not None:
+            health[nid]["opened_at"] = time.monotonic()
+
+    wait_for_initial_frames(active_nodes, serials, latest, health)
 
     try:
         while True:
@@ -211,16 +326,12 @@ def main():
                 if now < slot_start:
                     time.sleep(slot_start - now)
 
-                ser = serials.get(node_id)
-                if ser is None:
-                    continue
-
-                line = request_sample(node_id, ser)
+                line = request_sample(node_id, serials, health)
                 if not line:
                     continue
 
                 parsed = parse_frame(line)
-                if parsed is not None:
+                if parsed is not None and parsed["node_id"] == node_id:
                     latest[node_id] = parsed
 
             now = time.perf_counter()
@@ -234,8 +345,7 @@ def main():
         print("\nStopping TDMA hub...")
     finally:
         for ser in serials.values():
-            if ser is not None and ser.is_open:
-                ser.close()
+            close_one(ser)
 
 
 if __name__ == "__main__":
