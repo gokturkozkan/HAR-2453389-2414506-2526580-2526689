@@ -33,10 +33,9 @@ export default function RegisterScreen() {
       setError("Passwords do not match.");
     } else {
       setError(null);
-      //ROUTE FOR NOW
-      router.replace("/(tabs)");
     }
     try {
+      console.log("data being sent to backend..")
       setError(null);
       const data = await register({ username, password })
       

@@ -1,23 +1,29 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { initializeDatabase, closeDatabase } from './database.js';
-import { errorHandler } from './middleware/errorHandler.js';
-import authRoutes from './routes/auth.js';
-import espRoutes from './routes/esp.js';
+import { initializeDatabase, closeDatabase } from './database';
+import { errorHandler } from './middleware/errorHandler';
+import authRoutes from './routes/auth';
+import espRoutes from './routes/esp';
+import adminRoutes from './routes/admin';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Routes
 app.use('/', authRoutes);
 app.use('/', espRoutes);
+app.use('/', adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -38,8 +44,9 @@ const startServer = async () => {
     await initializeDatabase();
     console.log('Database initialized');
 
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`HAR Backend running on http://localhost:${PORT}`);
+      console.log(`Accessible on LAN at http://<your-ip>:${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {

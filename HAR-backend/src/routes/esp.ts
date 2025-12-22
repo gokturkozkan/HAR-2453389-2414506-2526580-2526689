@@ -1,26 +1,41 @@
 import { Router, Request, Response } from 'express';
-import { dbAll, dbRun, dbGet } from '../database.js';
-import { authMiddleware } from '../middleware/auth.js';
-import { EspDevice } from '../types/index.js';
+import { dbAll, dbRun, dbGet } from '../database';
+import { authMiddleware } from '../middleware/auth';
+import { EspDevice } from '../types/index';
 
 const router = Router();
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Get ESP status
+// Get ESP status (list or single by query ?id=)
 router.get('/esp-status', async (req: Request, res: Response) => {
   try {
-    const devices = await dbAll(`
-      SELECT 
-        id, 
-        is_connected as isConnected,
-        last_heartbeat,
-        created_at
-      FROM esp_devices
-      ORDER BY id ASC
-    `);
+    const idParam = req.query.id as string | undefined;
+    if (idParam) {
+      const deviceId = parseInt(idParam, 10);
+      if (isNaN(deviceId)) {
+        res.status(400).json({ message: 'Invalid device ID' });
+        return;
+      }
 
+      const row = await dbGet(
+        'SELECT id, is_connected as isConnected FROM esp_devices WHERE id = ?',
+        [deviceId]
+      );
+      if (!row) {
+        res.status(404).json({ message: 'Device not found' });
+        return;
+      }
+      const device: EspDevice = { id: row.id, isConnected: row.isConnected === 1 };
+      res.json(device);
+      return;
+    }
+
+    const rows = await dbAll(
+      'SELECT id, is_connected as isConnected FROM esp_devices ORDER BY id ASC'
+    );
+    const devices: EspDevice[] = (rows as any[]).map((r) => ({ id: r.id, isConnected: r.isConnected === 1 }));
     res.json(devices);
   } catch (error) {
     console.error('Error fetching ESP status:', error);
@@ -28,7 +43,18 @@ router.get('/esp-status', async (req: Request, res: Response) => {
   }
 });
 
-// Update ESP device status (for ESP devices to send heartbeats)
+// Get list of ESP device IDs
+router.get('/esp', async (_req: Request, res: Response) => {
+  try {
+    const rows = await dbAll('SELECT id FROM esp_devices ORDER BY id ASC');
+    const ids = rows.map((r: any) => ({ id: r.id }));
+    res.json(ids);
+  } catch (error) {
+    console.error('Error fetching ESP ids:', error);
+    res.status(500).json({ message: 'Error fetching ESPs' });
+  }
+});
+
 router.post('/esp-status/:id', async (req: Request, res: Response) => {
   try {
     const deviceId = parseInt(req.params.id, 10);
@@ -45,13 +71,13 @@ router.post('/esp-status/:id', async (req: Request, res: Response) => {
     if (!device) {
       // Create new device
       await dbRun(
-        'INSERT INTO esp_devices (id, is_connected, last_heartbeat) VALUES (?, ?, CURRENT_TIMESTAMP)',
+        'INSERT INTO esp_devices (id, is_connected) VALUES (?, ?)',
         [deviceId, isConnected ? 1 : 0]
       );
     } else {
       // Update existing device
       await dbRun(
-        'UPDATE esp_devices SET is_connected = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE id = ?',
+        'UPDATE esp_devices SET is_connected = ? WHERE id = ?',
         [isConnected ? 1 : 0, deviceId]
       );
     }

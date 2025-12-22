@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { dbGet, dbRun } from '../database.js';
-import { generateToken, verifyToken } from '../middleware/auth.js';
-import bcrypt from 'bcryptjs';
+import { generateToken } from '../middleware/auth.js';
+import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { LoginRequest, AuthResponse } from '../types/index.js';
 
@@ -26,7 +26,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     // Hash password
     const hashedPassword = await bcrypt.hash(credentials.password, 10);
-    const userId = uuidv4().replace(/-/g, '').substring(0, 24);
+    const userId = uuidv4();
 
     // Create user
     await dbRun(
@@ -54,6 +54,7 @@ router.post('/register', async (req: Request, res: Response) => {
 // Login endpoint
 router.post('/login', async (req: Request, res: Response) => {
   try {
+    console.log("api request received: login")
     const { credentials } = req.body as LoginRequest;
 
     if (!credentials || !credentials.username || !credentials.password) {
@@ -64,7 +65,7 @@ router.post('/login', async (req: Request, res: Response) => {
     // Find user
     const user = await dbGet('SELECT id, username, password FROM users WHERE username = ?', [
       credentials.username,
-    ]);
+    ]) as { id: string; username: string; password: string } | undefined;
 
     if (!user) {
       res.status(401).json({ message: 'Invalid username or password' });

@@ -1,46 +1,72 @@
 import React, { useEffect, useState } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
-import { EspStatus } from "@/app/types/espTypes";
+import { EspId, EspStatus } from "@/app/types/espTypes";
 import { espStatusApi } from "@/app/apis/espStatusApi";
 
 export default function ConnectScreen() {
   const [esps, setEsps] = useState<EspStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const { getEspStatus } = espStatusApi();
+  const [connectingId, setConnectingId] = useState<number | null>(null);
+  const { getEspStatus, getEsp } = espStatusApi();
 
-  const fetchEspStatuses = async () => {
+  const fetchEsps = async (initial: boolean = false) => {
+    if (initial) setLoading(true);
     try {
       try {
-        const data = await getEspStatus();
-        setEsps(data);
+        const data = await getEsp();
+        setEsps((prev) => {
+          const prevMap = new Map(prev.map((e) => [e.id, e.isConnected]));
+          return data.map((d: EspId) => ({
+            id: d.id,
+            isConnected: prevMap.get(d.id) ?? null,
+          }));
+        });
       } catch (e: any) {
         console.error("ESP fetch error:", e.message);
       }
     } catch (e) {
-      console.error("Failed to fetch ESP statuses", e);
+      console.error("Failed to fetch ESPs", e);
     } finally {
-      setLoading(false);
+      if (initial) setLoading(false);
     }
   };
 
+  const onConnect = async (id: number) => {
+    setConnectingId(id);
+    try {
+      const data = await getEspStatus(id);
+      setEsps((prev) => prev.map((esp) => (
+        esp.id === id ? { ...esp, isConnected: data.isConnected } : esp
+      )));
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
   useEffect(() => {
-    fetchEspStatuses();
-    const interval = setInterval(fetchEspStatuses, 3000);
-    return () => clearInterval(interval);
+    fetchEsps(true);
   }, []);
 
-  const isAllDone = esps.length > 0 && esps.every(esp => esp.isConnected !== null);
-
+  if(loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" />
+        <Text style={styles.loadingText}>Loading devices...</Text>
+      </View>
+    );
+  }
   return (
     <View style={styles.screen}>
-      {!isAllDone && (
+      {connectingId !== null && (
         <View style={styles.disabledOverlay}>
           <ActivityIndicator size="large" />
           <Text style={styles.overlayText}>Connecting to devices...</Text>
         </View>
       )}
-      <EspConnectionTable esps={esps} />
+      <View style={styles.tableContainer}>
+        <EspConnectionTable esps={esps} onConnect={onConnect} loadingId={connectingId}/>
+      </View>
     </View>
   );
 }
@@ -49,6 +75,19 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     padding: 16,
+  },
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 16,
+    color: "#4b5563",
+  },
+  tableContainer: {
+    paddingTop: 48,
   },
   disabledOverlay: {
     ...StyleSheet.absoluteFillObject,

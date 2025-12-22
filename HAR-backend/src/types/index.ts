@@ -9,7 +9,6 @@ export interface EspDevice {
   id: number;
   isConnected: boolean;
   last_heartbeat?: string;
-  created_at?: string;
 }
 
 export interface LoginRequest {

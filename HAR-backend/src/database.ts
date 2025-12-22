@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { User, EspDevice } from './types/index.js';
+import { User, EspDevice } from './types/index';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || path.join(__dirname, '../har.db');
@@ -34,9 +34,7 @@ export const initializeDatabase = (): Promise<void> => {
       db.run(
         `CREATE TABLE IF NOT EXISTS esp_devices (
           id INTEGER PRIMARY KEY,
-          is_connected BOOLEAN DEFAULT 0,
-          last_heartbeat DATETIME,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          is_connected BOOLEAN DEFAULT 0
         )`,
         (err) => {
           if (err) reject(err);

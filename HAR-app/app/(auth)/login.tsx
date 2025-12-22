@@ -29,10 +29,9 @@ export default function LoginScreen() {
       setError("Please enter password.");
     } else {
       setError(null);
-      //FOR NOW JUST ROUTE
-      router.replace("/(tabs)");
     }
     try {
+      console.log("data being sent to backend..")
       setError(null);
       const data = await login({ username, password })
       
