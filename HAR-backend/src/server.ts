@@ -6,6 +6,8 @@ import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
 import espRoutes from './routes/esp';
 import adminRoutes from './routes/admin';
+import userRoutes from './routes/user';
+import labelRoutes from './routes/label';
 
 dotenv.config();
 
@@ -24,6 +26,8 @@ app.use(express.json());
 app.use('/', authRoutes);
 app.use('/', espRoutes);
 app.use('/', adminRoutes);
+app.use('/', userRoutes);
+app.use('/', labelRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

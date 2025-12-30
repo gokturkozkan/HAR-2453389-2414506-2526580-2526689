@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import {
   View,
   Text,
@@ -13,11 +13,13 @@ import { HelloWave } from "@/components/hello-wave";
 import { router } from "expo-router";
 import { API_URL } from "@/app/apis/api_url";
 import { loginApi } from "../apis/loginApi";
+import { UserContext } from "../contexts/UserContext";
 
 export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { setUser } = useContext(UserContext)!;
   const { login } = loginApi();
 
   const handleLogin = async () => {
@@ -34,6 +36,7 @@ export default function LoginScreen() {
       console.log("data being sent to backend..")
       setError(null);
       const data = await login({ username, password })
+      setUser({ username: data.user.username, id: data.user.id})
       
       console.log("TOKEN:", data.token);
       console.log("USER:", data.user);
@@ -49,7 +52,7 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "android" ? "padding" : undefined}
       >
         <View style={styles.inner}>
           <View style={styles.card}>

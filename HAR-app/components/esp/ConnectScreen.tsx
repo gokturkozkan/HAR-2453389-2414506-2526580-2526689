@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
 import { EspId, EspStatus } from "@/app/types/espTypes";
 import { espStatusApi } from "@/app/apis/espStatusApi";
+import { ConnectionContext } from "../../app/contexts/ConnectionContext";
 
 export default function ConnectScreen() {
   const [esps, setEsps] = useState<EspStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectingId, setConnectingId] = useState<number | null>(null);
+  const [espStatus, setEspStatus] = useState<EspStatus[]>([]);
   const { getEspStatus, getEsp } = espStatusApi();
+  const { connection, setConnection } = useContext(ConnectionContext);
 
   const fetchEsps = async (initial: boolean = false) => {
     if (initial) setLoading(true);
@@ -36,9 +39,18 @@ export default function ConnectScreen() {
     setConnectingId(id);
     try {
       const data = await getEspStatus(id);
-      setEsps((prev) => prev.map((esp) => (
-        esp.id === id ? { ...esp, isConnected: data.isConnected } : esp
-      )));
+      setEsps((prev) => {
+        const updated = prev.map((esp) => (
+          esp.id === id ? { ...esp, isConnected: data.isConnected } : esp
+        ));
+        
+        // Check connection status after updating
+        const allConnected = updated.every((esp) => esp.isConnected === true);
+        console.log("After update - all connected:", allConnected);
+        setConnection(allConnected);
+        console.log(connection)
+        return updated;
+      });
     } finally {
       setConnectingId(null);
     }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import {
   View,
   Text,
@@ -12,12 +12,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { HelloWave } from "@/components/hello-wave";
 import { router } from "expo-router";
 import { registerApi } from "../apis/registerApi";
+import { UserContext } from "../contexts/UserContext";
 
 export default function RegisterScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { setUser } = useContext(UserContext)!;
   const { register } = registerApi();
 
   const handleRegister = async () => {
@@ -38,7 +40,7 @@ export default function RegisterScreen() {
       console.log("data being sent to backend..")
       setError(null);
       const data = await register({ username, password })
-      
+      setUser({ username: data.user.username, id: data.user.id})
       console.log("TOKEN:", data.token);
       console.log("USER:", data.user);
 
@@ -52,7 +54,7 @@ export default function RegisterScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "android" ? "padding" : undefined}
       >
         <View style={styles.inner}>
           <View style={styles.card}>
