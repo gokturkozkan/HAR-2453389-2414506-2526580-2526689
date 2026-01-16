@@ -1,3 +1,2 @@
 
-export const API_URL = "http://PI:3000";
-//change when connection with backend
+export const API_URL = "http://192.168.137.1:3000";

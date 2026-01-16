@@ -1,14 +1,16 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
+import React, { useContext } from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Ionicons } from '@expo/vector-icons';
+import { ConnectionContext } from '../contexts/ConnectionContext';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { connection } = useContext(ConnectionContext);
 
   return (
     <Tabs
@@ -29,6 +31,13 @@ export default function TabLayout() {
         options={{
           title: 'Connect',
           tabBarIcon: ({ color }) => <Ionicons size={28} name = "settings" color={color}/>,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color }) => <Ionicons size={28} name = "person-outline" color={color}/>
         }}
       />
     </Tabs>

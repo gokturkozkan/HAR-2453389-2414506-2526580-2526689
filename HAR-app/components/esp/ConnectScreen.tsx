@@ -1,46 +1,125 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
-import { EspStatus } from "@/app/types/espTypes";
+import { EspId, EspStatus } from "@/app/types/espTypes";
 import { espStatusApi } from "@/app/apis/espStatusApi";
+import { ConnectionContext } from "../../app/contexts/ConnectionContext";
 
 export default function ConnectScreen() {
   const [esps, setEsps] = useState<EspStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const { getEspStatus } = espStatusApi();
+  const [connectingId, setConnectingId] = useState<number | null>(null);
+  const [espStatus, setEspStatus] = useState<EspStatus[]>([]);
+  const { getEspStatus, getEsp } = espStatusApi();
+  const { connection, setConnection } = useContext(ConnectionContext);
 
-  const fetchEspStatuses = async () => {
+  const fetchEsps = async (initial: boolean = false) => {
+    if (initial) setLoading(true);
     try {
       try {
-        const data = await getEspStatus();
-        setEsps(data);
+        const data = await getEsp();
+        setEsps((prev) => {
+          const prevMap = new Map(prev.map((e) => [e.id, e.isConnected]));
+          return data.map((d: EspId) => ({
+            id: d.id,
+            isConnected: prevMap.get(d.id) ?? null,
+          }));
+        });
       } catch (e: any) {
         console.error("ESP fetch error:", e.message);
       }
     } catch (e) {
-      console.error("Failed to fetch ESP statuses", e);
+      console.error("Failed to fetch ESPs", e);
     } finally {
-      setLoading(false);
+      if (initial) setLoading(false);
     }
   };
 
+  const onConnect = async (id: number) => {
+    setConnectingId(id);
+    try {
+      const data = await getEspStatus(id);
+      setEsps((prev) => {
+        const updated = prev.map((esp) => (
+          esp.id === id ? { ...esp, isConnected: data.isConnected } : esp
+        ));
+        
+        // Check connection status after updating
+        const allConnected = updated.every((esp) => esp.isConnected === true);
+        console.log("After update - all connected:", allConnected);
+        setConnection(allConnected);
+        console.log(connection)
+        return updated;
+      });
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
   useEffect(() => {
-    fetchEspStatuses();
-    const interval = setInterval(fetchEspStatuses, 3000);
-    return () => clearInterval(interval);
+    fetchEsps(true);
   }, []);
 
-  const isAllDone = esps.length > 0 && esps.every(esp => esp.isConnected !== null);
+  // Periodically check connection status
+  useEffect(() => {
+    if (esps.length === 0) return;
 
+    const checkConnections = async () => {
+      try {
+        // Only check if we think we're connected
+        const connectedEsps = esps.filter(esp => esp.isConnected === true);
+        if (connectedEsps.length === 0) return;
+
+        // Check each connected ESP
+        const statusPromises = connectedEsps.map(esp => 
+          getEspStatus(esp.id).catch(() => ({ isConnected: false }))
+        );
+        
+        const statuses = await Promise.all(statusPromises);
+        
+        setEsps((prev) => {
+          const updated = prev.map((esp, index) => {
+            const connectedIndex = connectedEsps.findIndex(e => e.id === esp.id);
+            if (connectedIndex !== -1) {
+              return { ...esp, isConnected: statuses[connectedIndex].isConnected };
+            }
+            return esp;
+          });
+          
+          const allConnected = updated.every((esp) => esp.isConnected === true);
+          setConnection(allConnected);
+          return updated;
+        });
+      } catch (e) {
+        console.error("Failed to check connection status", e);
+      }
+    };
+
+    // Check every 5 seconds
+    const interval = setInterval(checkConnections, 5000);
+
+    return () => clearInterval(interval);
+  }, [esps.length, connection]);
+
+  if(loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" />
+        <Text style={styles.loadingText}>Loading devices...</Text>
+      </View>
+    );
+  }
   return (
     <View style={styles.screen}>
-      {!isAllDone && (
+      {connectingId !== null && (
         <View style={styles.disabledOverlay}>
           <ActivityIndicator size="large" />
           <Text style={styles.overlayText}>Connecting to devices...</Text>
         </View>
       )}
-      <EspConnectionTable esps={esps} />
+      <View style={styles.tableContainer}>
+        <EspConnectionTable esps={esps} onConnect={onConnect} loadingId={connectingId}/>
+      </View>
     </View>
   );
 }
@@ -49,6 +128,19 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     padding: 16,
+  },
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 16,
+    color: "#4b5563",
+  },
+  tableContainer: {
+    paddingTop: 48,
   },
   disabledOverlay: {
     ...StyleSheet.absoluteFillObject,
