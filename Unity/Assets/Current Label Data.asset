@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2571d87bd1a0724aac314550328e265, type: 3}
   m_Name: Current Label Data
   m_EditorClassIdentifier: 
-  label: 
-  timestamp: 
-  source: 
+  label: sit
+  timestamp: 2025-12-22T13:59:53.064352Z
+  source: remote-python

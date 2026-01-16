@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+
 #config part
 HOST = "0.0.0.0"
 TCP_PORT = 5005
@@ -45,13 +46,10 @@ def init_secret_from_argv():
     SECRET_HASH = compute_secret_hash(pairing_code)
     PAIRING_START_TIME = time.time()
 
-    print("\n======================")
     print(" UNITY BRIDGE STARTED ")
-    print("======================")
     print("PAIRING MODE:")
     print(f"  Pairing code provided by Unity: '{pairing_code}'")
     print(f"  Pairing window: {PAIRING_WINDOW_SECONDS} seconds")
-    print("======================\n")
 
 #data log part
 def log_message(message_dict):
