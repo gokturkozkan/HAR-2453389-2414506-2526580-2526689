@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -49,13 +50,36 @@ public class LabelDataReader : MonoBehaviour
             return;
         }
 
-       
-            string json = File.ReadAllText(logFilePath);
-            if (string.IsNullOrWhiteSpace(json))
+        string json = null;
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
             {
-                Debug.LogWarning("[LabelJsonReader] Log file is empty.");
-                return;
+                // Allow reading while the Python bridge is writing.
+                using (var fs = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var sr = new StreamReader(fs))
+                {
+                    json = sr.ReadToEnd();
+                }
+                break;
             }
+            catch (IOException)
+            {
+                if (attempt == maxAttempts)
+                {
+                    Debug.LogWarning($"[LabelJsonReader] Sharing violation reading log (path={logFilePath}).");
+                    return;
+                }
+                Thread.Sleep(10);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            Debug.LogWarning("[LabelJsonReader] Log file is empty.");
+            return;
+        }
 
             var cmd = JsonUtility.FromJson<LabelDataContainer>(json);
             if (cmd == null)

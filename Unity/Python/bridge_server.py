@@ -7,6 +7,7 @@ import time
 import hmac
 import hashlib
 import sys
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -63,9 +64,15 @@ def log_message(message_dict):
     if "timestamp" not in message_dict:
         message_dict["timestamp"] = datetime.utcnow().isoformat() + "Z"
 
-    # overwrite file so tehre is only 1 data line
-    with LOG_FILE.open("w", encoding="utf-8") as f:
+    # Atomic write to avoid Unity reading a partially-written file and to
+    # minimize time spent holding the file handle (helps with OneDrive locks).
+    tmp_path = LOG_FILE.with_suffix(LOG_FILE.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(message_dict, f, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.replace(tmp_path, LOG_FILE)
 
 #tcp handling
 def handle_client(conn, addr):
