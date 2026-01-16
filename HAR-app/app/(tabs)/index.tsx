@@ -32,7 +32,6 @@ export default function HomeScreen() {
     "running",
     "sitting",
     "standing",
-    "lying",
     "jumping",
     "cycling",
     "stairs_up",
@@ -71,7 +70,7 @@ export default function HomeScreen() {
   const labelChangeHandler = async(activity: string) => {
     try {
       const data = await sendLabel(activity);
-      console.log("new label sent")
+      console.log(`new label sent ${ activity }`)
       setMessage(["success", `Sent new label ${ activity }`]);
     } catch (e: any) {
       setMessage(["error", e.message]);

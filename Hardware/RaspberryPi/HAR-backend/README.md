@@ -2,52 +2,108 @@
 
 Backend server for the HAR (Human Activity Recognition) mobile application.
 
+Built with Flask (Python).
+
 ## Features
 
 - User authentication (login/register) with JWT tokens
 - ESP device status monitoring
 - User session management
 - SQLite database for persistence
+- Admin dashboard for monitoring
 
 ## Setup
 
 ### Prerequisites
-- Node.js 18+ 
-- npm or yarn
+- Python 3.8+
+- pip
 
 ### Installation
 
-1. Clone the repository and navigate to the backend directory:
+1. Navigate to the backend directory:
 ```bash
 cd HAR-backend
 ```
 
-2. Install dependencies:
+2. Create a virtual environment (optional but recommended):
 ```bash
-npm install
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Create a `.env` file based on `.env.example`:
+3. Install dependencies:
 ```bash
-cp .env.example .env
+pip install -r requirements.txt
 ```
 
-4. Update `.env` with your configuration:
+4. Create a `.env` file (copy from .env example):
+```bash
+cp .env .env.local
+```
+
+5. Update `.env.local` with your configuration:
 ```
 PORT=3000
 NODE_ENV=development
 JWT_SECRET=your-secure-secret-key
 DB_PATH=./har.db
+ADMIN_TOKEN=
 ```
 
 ## Running the Server
 
 ### Development Mode
 ```bash
-npm run dev
+python app.py
 ```
 
-### Production Build
+The server will start on `http://localhost:3000`
+
+### Production Mode
+Set `NODE_ENV=production` in `.env` file before running.
+
+## API Endpoints
+
+### Authentication
+- `POST /register` - Register a new user
+- `POST /login` - Login with credentials
+
+### ESP Devices
+- `GET /esp` - Get list of ESP device IDs
+- `GET /esp-status` - Get status of all devices
+- `GET /esp-status?id=<device_id>` - Get status of specific device
+- `POST /esp-status/<device_id>` - Update device status
+
+### User Management
+- `POST /user/update` - Update user credentials
+
+### Labels
+- `GET /label` - Get current label and image
+- `POST /label` - Update label
+
+### Admin
+- `GET /admin` - Admin dashboard
+- `GET /admin/users.json` - Get all users (requires ADMIN_TOKEN)
+- `GET /admin/esp-devices.json` - Get all ESP devices (requires ADMIN_TOKEN)
+
+## Environment Variables
+
+- `PORT` - Server port (default: 3000)
+- `NODE_ENV` - Environment mode (development/production)
+- `JWT_SECRET` - Secret key for JWT tokens
+- `DB_PATH` - Path to SQLite database file
+- `ADMIN_TOKEN` - Optional token to protect admin endpoints
+
+## Database
+
+The application uses SQLite for data persistence. The database file (`har.db`) is created automatically on first run.
+
+### Tables
+- `users` - User accounts with hashed passwords
+- `esp_devices` - Connected ESP device information
+- `labels` - Current labels for activity recognition
+- `unity_images` - Reference images from mock Unity data
+
 ```bash
 npm run build
 npm start
@@ -124,11 +180,26 @@ npm start
 
 ```
 HAR-backend/
-├── src/
-│   ├── server.ts          # Express app setup
-│   ├── database.ts        # Database initialization
-│   ├── middleware/
-│   │   ├── auth.ts        # JWT authentication middleware
+├── app.py                 # Flask app setup
+├── database.py            # Database initialization
+├── middleware/
+│   ├── auth.py            # JWT authentication
+│   └── error_handler.py   # Error handling
+├── routes/
+│   ├── auth.py            # Authentication routes
+│   ├── esp.py             # ESP device routes
+│   ├── admin.py           # Admin dashboard routes
+│   ├── user.py            # User management routes
+│   └── label.py           # Label management routes
+├── mock-Unity/            # Mock image data
+├── requirements.txt       # Python dependencies
+├── .env                   # Environment variables
+└── README.md              # This file
+```
+
+## License
+
+This project is part of the HAR system.
 │   │   └── errorHandler.ts # Error handling middleware
 │   ├── routes/
 │   │   ├── auth.ts        # Authentication routes
