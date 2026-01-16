@@ -230,7 +230,7 @@ def print_table(latest, active_nodes, health):
 
 
 def warmup(active_nodes, serials, latest, health):
-    print("\nWaiting for initial data...")
+    print("\nWaiting for initial data (non-blocking warmup)...")
     deadline = time.monotonic() + WARMUP_SECONDS
     got = set()
 
