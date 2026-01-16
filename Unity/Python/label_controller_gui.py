@@ -9,10 +9,6 @@ import hashlib
 import random
 import string
 import time
-import requests
-
-# Flask backend configuration
-FLASK_BACKEND_URL = "http://192.168.1.100:3000"  # Change this to your Raspberry Pi IP
 
 DISCOVERY_PORT = 5006
 DISCOVERY_TIMEOUT = 3.0
@@ -53,25 +49,21 @@ class LabelControllerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("HAR Label Controller")
-        self.root.geometry("450x500")
+        self.root.geometry("400x350")
         self.root.resizable(False, False)
         
-        # Generate pairing code for Unity
+        # Generate pairing code
         self.pairing_code = generate_pairing_code()
         self.secret_hash = compute_secret_hash(self.pairing_code)
-        self.unity_sock = None
-        self.unity_connected = False
-        
-        # Flask backend
-        self.backend_url = FLASK_BACKEND_URL
-        self.flask_connected = False
+        self.sock = None
+        self.connected = False
         
         # Create UI
         self.create_widgets()
         
-        # Connect to both Unity bridge and Flask backend
-        threading.Thread(target=self.connect_to_unity, daemon=True).start()
-        threading.Thread(target=self.connect_to_flask, daemon=True).start()
+        # Auto-connect in background
+        self.connection_thread = threading.Thread(target=self.auto_connect, daemon=True)
+        self.connection_thread.start()
     
     def create_widgets(self):
         # Title
@@ -87,78 +79,49 @@ class LabelControllerGUI:
         )
         title_label.pack()
         
-        # Pairing code section for Unity
-        pairing_frame = tk.Frame(self.root, pady=10)
+        # Pairing code section
+        pairing_frame = tk.Frame(self.root, pady=20)
         pairing_frame.pack(fill=tk.X, padx=20)
         
         pairing_label = tk.Label(
             pairing_frame,
-            text="Unity Pairing Code:",
-            font=("Arial", 11, "bold")
+            text="Pairing Code:",
+            font=("Arial", 12)
         )
         pairing_label.pack()
         
-        code_frame = tk.Frame(pairing_frame, bg="#9b59b6", pady=8, padx=20)
-        code_frame.pack(pady=5)
+        code_frame = tk.Frame(pairing_frame, bg="#3498db", pady=10, padx=20)
+        code_frame.pack(pady=10)
         
         code_label = tk.Label(
             code_frame,
             text=self.pairing_code,
-            font=("Courier New", 20, "bold"),
-            bg="#9b59b6",
+            font=("Courier New", 24, "bold"),
+            bg="#3498db",
             fg="white"
         )
         code_label.pack()
         
-        # Unity connection status
-        self.unity_status_label = tk.Label(
+        # Status
+        self.status_label = tk.Label(
             pairing_frame,
-            text="Unity: Connecting...",
-            font=("Arial", 9),
+            text="Connecting to bridge...",
+            font=("Arial", 10),
             fg="#e67e22"
         )
-        self.unity_status_label.pack(pady=2)
+        self.status_label.pack(pady=5)
         
-        # Flask backend section
-        flask_frame = tk.Frame(self.root, pady=10)
-        flask_frame.pack(fill=tk.X, padx=20)
-        
-        flask_label = tk.Label(
-            flask_frame,
-            text="Flask Backend URL:",
-            font=("Arial", 10)
-        )
-        flask_label.pack()
-        
-        self.url_entry = tk.Entry(
-            flask_frame,
+        # Instructions
+        instructions = tk.Label(
+            pairing_frame,
+            text="Enter this code in Unity and press Connect",
             font=("Arial", 9),
-            width=35
+            fg="#7f8c8d"
         )
-        self.url_entry.insert(0, FLASK_BACKEND_URL)
-        self.url_entry.pack(pady=5)
-        
-        connect_btn = tk.Button(
-            flask_frame,
-            text="Update & Reconnect",
-            bg="#3498db",
-            fg="white",
-            font=("Arial", 9),
-            command=self.update_backend_url
-        )
-        connect_btn.pack()
-        
-        # Flask connection status
-        self.flask_status_label = tk.Label(
-            flask_frame,
-            text="Flask: Connecting...",
-            font=("Arial", 9),
-            fg="#e67e22"
-        )
-        self.flask_status_label.pack(pady=2)
+        instructions.pack()
         
         # Buttons frame
-        buttons_frame = tk.Frame(self.root, pady=15)
+        buttons_frame = tk.Frame(self.root, pady=20)
         buttons_frame.pack(fill=tk.X, padx=20)
         
         button_style = {
@@ -205,79 +168,36 @@ class LabelControllerGUI:
         )
         self.sit_btn.pack(pady=5)
     
-    def connect_to_unity(self):
-        """Connect to Unity bridge server"""
+    def auto_connect(self):
+        """Auto-connect with retries until bridge is available"""
         retry_interval = 2.0
         max_retries = 60
         retries = 0
         
-        while retries < max_retries and not self.unity_connected:
+        while retries < max_retries and not self.connected:
             try:
                 host, port = discover_bridge(self.secret_hash)
-                self.unity_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.unity_sock.connect((host, port))
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((host, port))
                 
-                self.unity_connected = True
-                self.update_unity_status("Unity: Connected!", "#27ae60")
-                self.check_enable_buttons()
-                print(f"Connected to Unity bridge at {host}:{port}")
+                self.connected = True
+                self.update_status("Connected!", "#27ae60")
+                self.enable_buttons()
+                print(f"Connected to bridge at {host}:{port}")
                 return
                 
             except (TimeoutError, ConnectionRefusedError, OSError) as e:
                 retries += 1
                 if retries < max_retries:
-                    self.update_unity_status(f"Unity: Waiting... ({retries}/{max_retries})", "#e67e22")
+                    self.update_status(f"Waiting for bridge... ({retries}/{max_retries})", "#e67e22")
                     time.sleep(retry_interval)
                 else:
-                    self.update_unity_status("Unity: Failed (optional)", "#95a5a6")
+                    self.update_status("Connection failed!", "#e74c3c")
+                    messagebox.showerror("Connection Error", "Failed to connect to bridge server.")
     
-    def connect_to_flask(self):
-        """Connect to Flask backend"""
-        retry_interval = 2.0
-        max_retries = 30
-        retries = 0
-        
-        while retries < max_retries and not self.flask_connected:
-            try:
-                response = requests.get(f"{self.backend_url}/health", timeout=3)
-                if response.status_code == 200:
-                    self.flask_connected = True
-                    self.update_flask_status("Flask: Connected!", "#27ae60")
-                    self.check_enable_buttons()
-                    print(f"Connected to Flask backend at {self.backend_url}")
-                    return
-                else:
-                    raise Exception(f"Backend returned {response.status_code}")
-                    
-            except Exception as e:
-                retries += 1
-                if retries < max_retries:
-                    self.update_flask_status(f"Flask: Waiting... ({retries}/{max_retries})", "#e67e22")
-                    time.sleep(retry_interval)
-                else:
-                    self.update_flask_status("Flask: Failed (optional)", "#95a5a6")
-    
-    def update_backend_url(self):
-        """Update backend URL and reconnect"""
-        new_url = self.url_entry.get().strip()
-        if new_url:
-            self.backend_url = new_url
-            self.flask_connected = False
-            self.update_flask_status("Flask: Reconnecting...", "#e67e22")
-            threading.Thread(target=self.connect_to_flask, daemon=True).start()
-    
-    def update_unity_status(self, text, color):
-        """Thread-safe Unity status update"""
-        self.root.after(0, lambda: self.unity_status_label.config(text=text, fg=color))
-    
-    def update_flask_status(self, text, color):
-        """Thread-safe Flask status update"""
-        self.root.after(0, lambda: self.flask_status_label.config(text=text, fg=color))
-    
-    def check_enable_buttons(self):
-        """Enable buttons if at least one connection is active"""
-        if self.unity_connected or self.flask_connected:
-            self.enable_buttons()
+    def update_status(self, text, color):
+        """Thread-safe status update"""
+        self.root.after(0, lambda: self.status_label.config(text=text, fg=color))
     
     def enable_buttons(self):
         """Thread-safe button enabler"""
@@ -289,58 +209,31 @@ class LabelControllerGUI:
         self.root.after(0, enable)
     
     def send_label(self, label: str):
-        """Send label to BOTH Unity bridge AND Flask backend"""
-        success_unity = False
-        success_flask = False
+        """Send label to bridge server"""
+        if not self.connected or not self.sock:
+            messagebox.showwarning("Not Connected", "Not connected to bridge server.")
+            return
         
-        # Send to Unity bridge
-        if self.unity_connected and self.unity_sock:
-            try:
-                msg = {
-                    "label": label,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "source": "gui-controller",
-                    "secret": self.secret_hash
-                }
-                line = json.dumps(msg, ensure_ascii=False) + "\n"
-                self.unity_sock.sendall(line.encode("utf-8"))
-                success_unity = True
-                print(f"Sent to Unity: {label}")
-            except Exception as e:
-                print(f"Unity send failed: {e}")
-                self.update_unity_status("Unity: Send failed!", "#e74c3c")
-        
-        # Send to Flask backend
-        if self.flask_connected:
-            try:
-                response = requests.post(
-                    f"{self.backend_url}/label",
-                    json={"label": label},
-                    headers={"Content-Type": "application/json"},
-                    timeout=5
-                )
-                
-                if response.status_code == 200:
-                    success_flask = True
-                    print(f"Sent to Flask: {label}")
-                else:
-                    raise Exception(f"Backend returned {response.status_code}")
-                
-            except Exception as e:
-                print(f"Flask send failed: {e}")
-                self.update_flask_status("Flask: Send failed!", "#e74c3c")
-        
-        # Update UI
-        if success_unity or success_flask:
+        try:
+            msg = {
+                "label": label,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "source": "gui-controller",
+                "secret": self.secret_hash
+            }
+            line = json.dumps(msg, ensure_ascii=False) + "\n"
+            self.sock.sendall(line.encode("utf-8"))
+            
+            print(f"Sent label: {label}")
+            self.update_status(f"Sent: {label.upper()}", "#27ae60")
+            
+            # Flash the button
             self.flash_button(label)
-            destinations = []
-            if success_unity:
-                destinations.append("Unity")
-            if success_flask:
-                destinations.append("Flask")
-            print(f"Label '{label}' sent to: {', '.join(destinations)}")
-        else:
-            messagebox.showwarning("Send Failed", "Failed to send to any destination!")
+            
+        except Exception as e:
+            print(f"Error sending label: {e}")
+            self.update_status("Send failed!", "#e74c3c")
+            messagebox.showerror("Send Error", f"Failed to send label: {e}")
     
     def flash_button(self, label):
         """Visual feedback for button press"""
@@ -358,9 +251,9 @@ class LabelControllerGUI:
     
     def on_closing(self):
         """Clean up on window close"""
-        if self.unity_sock:
+        if self.sock:
             try:
-                self.unity_sock.close()
+                self.sock.close()
             except:
                 pass
         self.root.destroy()
