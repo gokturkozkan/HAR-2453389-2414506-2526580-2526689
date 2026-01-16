@@ -295,14 +295,6 @@ class LabelControllerGUI:
         
         # Send to Unity bridge
         if self.unity_connected and self.unity_sock:
-        if self.unity_sock:
-            try:
-                self.unity_sock.close()
-            except:
-                pass
-            try:
-                msg = {
-                    "label": label,
             try:
                 msg = {
                     "label": label,
@@ -348,7 +340,15 @@ class LabelControllerGUI:
                 destinations.append("Flask")
             print(f"Label '{label}' sent to: {', '.join(destinations)}")
         else:
-            messagebox.showwarning("Send Failed", "Failed to send to any destination!
+            messagebox.showwarning("Send Failed", "Failed to send to any destination!")
+    
+    def flash_button(self, label):
+        """Visual feedback for button press"""
+        btn_map = {
+            "walking": self.walk_btn,
+            "idle": self.idle_btn,
+            "sitting": self.sit_btn
+        }
         
         btn = btn_map.get(label)
         if btn:
@@ -358,6 +358,11 @@ class LabelControllerGUI:
     
     def on_closing(self):
         """Clean up on window close"""
+        if self.unity_sock:
+            try:
+                self.unity_sock.close()
+            except:
+                pass
         self.root.destroy()
 
 def main():
@@ -368,9 +373,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-if self.unity_sock:
-            try:
-                self.unity_sock.close()
-            except:
-                pass
-        
