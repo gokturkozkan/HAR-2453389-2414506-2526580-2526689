@@ -14,10 +14,18 @@ public class LabelDataReader : MonoBehaviour
     [Header("Target Data")]
     [SerializeField]
     public LabelData targetLabelData;   // ScriptableObject to fill
+    private string prevLabel = null;
+
+    [SerializeField] AnimExecuter animExec;
 
     private void Start()
     {
         ResolveLogPathIfEmpty();
+    }
+
+    private void Update()
+    {
+        ReadAndApply();
     }
 
     // You call this from a UI Button
@@ -41,8 +49,7 @@ public class LabelDataReader : MonoBehaviour
             return;
         }
 
-        try
-        {
+       
             string json = File.ReadAllText(logFilePath);
             if (string.IsNullOrWhiteSpace(json))
             {
@@ -62,13 +69,47 @@ public class LabelDataReader : MonoBehaviour
             targetLabelData.timestamp = cmd.timestamp;
             targetLabelData.source = cmd.source;
 
+            if (prevLabel != cmd.label)
+            {
+                prevLabel = cmd.label;
+                OnLabelChanged(cmd.label);
+            }
+
+
             Debug.Log($"[LabelJsonReader] Updated SO -> label='{cmd.label}', source='{cmd.source}'");
-        }
-        catch (Exception e)
+        
+        
+    }
+
+    private void OnLabelChanged(string newLabel)
+    {
+        Debug.Log("Label updated: " + newLabel);
+        if(newLabel == "Walk")
         {
-            Debug.LogError($"[LabelJsonReader] Error reading/parsing JSON: {e}");
+            CharacterAnimationController._instance.GoWalk();
+        }
+        if (newLabel == "Idle")
+        {
+            CharacterAnimationController._instance.GoIdle();
+        }
+        if (newLabel == "Sit")
+        {
+            CharacterAnimationController._instance.GoSit();
+        }
+        if (newLabel == "walk")
+        {
+            CharacterAnimationController._instance.GoWalk();
+        }
+        if (newLabel == "idle")
+        {
+            CharacterAnimationController._instance.GoIdle();
+        }
+        if (newLabel == "sit")
+        {
+            CharacterAnimationController._instance.GoSit();
         }
     }
+
 
     private void ResolveLogPathIfEmpty()
     {
