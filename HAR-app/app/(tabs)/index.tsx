@@ -2,10 +2,11 @@ import { View, Text, StyleSheet, Image, ActivityIndicator, Modal, ScrollView } f
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Pressable } from "react-native";
 import { router } from "expo-router";
-import { useContext, useState, useEffect, useCallback } from "react";
+import { useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useFocusEffect } from '@react-navigation/native';
 import { labelApi } from "../apis/labelApi";
 import { espStatusApi } from "../apis/espStatusApi";
+import { ConnectionContext } from "../contexts/ConnectionContext";
 
 const handleConnection = () => {
   router.push("/connect");
@@ -20,10 +21,11 @@ export default function HomeScreen() {
   const [ loading, setLoading ] = useState<boolean>(false);
   const [ message, setMessage ] = useState<[string, string] | null>(null);
   const [ label, setLabel ] = useState<labelType>();
-  const [ connection, setConnection ] = useState<boolean>(true);
+  const { connection } = useContext(ConnectionContext);
   const [ newLabel, setNewLabel ] = useState<string>("");
   const [ dropdownVisible, setDropdownVisible ] = useState<boolean>(false);
-  const { getLabel } = labelApi();
+  const getLabelRef = useRef(labelApi().getLabel);
+  const sendLabel = labelApi().sendLabel;
 
   const activityLabels = [
     "walking",
@@ -39,40 +41,42 @@ export default function HomeScreen() {
 
   console.log("HomeScreen render - connection state:", connection);
 
-  const fetchLabel = useCallback(async() => {
-    if(!connection) return;
-    
-    try {
-      setLoading(true);
-      const data = await getLabel();
-      setLabel(data);
-      setMessage(["success", `Received label: ${data.label}`]);
-    } catch (e: any) {
-      setMessage(["error", e.message]);
-      console.error("Label fetch error:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [connection, getLabel]);
-
-  useEffect(() => {
-    if(connection) {
-      setConnection(true);
-      console.log("useEffect triggered - fetching label");
-      fetchLabel();
-    }
-  }, [connection, fetchLabel]);
-
-  // Also refetch when the Home tab gains focus
   useFocusEffect(
     useCallback(() => {
-      setConnection(true);
-      console.log("Home tab focused - connection:", connection);
-      if (connection) {
-        fetchLabel();
-      }
-    }, [connection, fetchLabel])
+      if (!connection) return;
+
+      let isActive = true;
+
+      (async () => {
+        setLoading(true);
+        try {
+          const data = await getLabelRef.current();
+          if (!isActive) return; // prevent state updates if user leaves screen
+          setLabel(data);
+          setMessage(["success", `Received label: ${data.label}`]);
+        } catch (e: any) {
+          if (!isActive) return;
+          setMessage(["error", e.message]);
+        } finally {
+          if (isActive) setLoading(false);
+        }
+      })();
+
+      return () => {
+        isActive = false;
+      };
+    }, [connection])
   );
+
+  const labelChangeHandler = async(activity: string) => {
+    try {
+      const data = await sendLabel(activity);
+      console.log("new label sent")
+      setMessage(["success", `Sent new label ${ activity }`]);
+    } catch (e: any) {
+      setMessage(["error", e.message]);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -96,7 +100,9 @@ export default function HomeScreen() {
                     <Text style={styles.label}>Re-label</Text>
                     <Pressable 
                       style={styles.dropdown}
-                      onPress={() => setDropdownVisible(true)}
+                      onPress={() => {
+                        setDropdownVisible(true);
+                      }}
                     >
                       <Text style={newLabel ? styles.dropdownText : styles.dropdownPlaceholder}>
                         {newLabel || "Select a label"}
@@ -123,6 +129,7 @@ export default function HomeScreen() {
                                 onPress={() => {
                                   setNewLabel(activity);
                                   setDropdownVisible(false);
+                                  labelChangeHandler(activity);
                                 }}
                               >
                                 <Text style={styles.dropdownItemText}>{activity}</Text>

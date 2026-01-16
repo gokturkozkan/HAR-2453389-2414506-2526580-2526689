@@ -60,6 +60,47 @@ export default function ConnectScreen() {
     fetchEsps(true);
   }, []);
 
+  // Periodically check connection status
+  useEffect(() => {
+    if (esps.length === 0) return;
+
+    const checkConnections = async () => {
+      try {
+        // Only check if we think we're connected
+        const connectedEsps = esps.filter(esp => esp.isConnected === true);
+        if (connectedEsps.length === 0) return;
+
+        // Check each connected ESP
+        const statusPromises = connectedEsps.map(esp => 
+          getEspStatus(esp.id).catch(() => ({ isConnected: false }))
+        );
+        
+        const statuses = await Promise.all(statusPromises);
+        
+        setEsps((prev) => {
+          const updated = prev.map((esp, index) => {
+            const connectedIndex = connectedEsps.findIndex(e => e.id === esp.id);
+            if (connectedIndex !== -1) {
+              return { ...esp, isConnected: statuses[connectedIndex].isConnected };
+            }
+            return esp;
+          });
+          
+          const allConnected = updated.every((esp) => esp.isConnected === true);
+          setConnection(allConnected);
+          return updated;
+        });
+      } catch (e) {
+        console.error("Failed to check connection status", e);
+      }
+    };
+
+    // Check every 5 seconds
+    const interval = setInterval(checkConnections, 5000);
+
+    return () => clearInterval(interval);
+  }, [esps.length, connection]);
+
   if(loading) {
     return (
       <View style={styles.loadingScreen}>
