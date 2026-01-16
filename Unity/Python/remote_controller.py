@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import random
 import string
+import time
 
 DISCOVERY_PORT = 5006
 DISCOVERY_TIMEOUT = 3.0  # seconds
@@ -61,16 +62,28 @@ class UnityRemoteClient:
         print(f"    {self.pairing_code}")
         print("")
         print("1) Start/Play the Unity application.")
-        print("2) Enter this code in Unity's 'pairingCode' field.")
-        print("3) Press ENTER here to connect.\n")
-        input("Press ENTER once Unity is ready with this code...")
+        print("2) Enter this code in Unity's 'pairingCode' field and press Connect.")
+        print("3) Waiting for bridge to start...\n")
 
-    def connect(self):
-        self.host, self.port = discover_bridge(self.secret_hash)
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        print(f"Connecting to {self.host}:{self.port}...")
-        self.sock.connect((self.host, self.port))
-        print("Connected.")
+    def connect(self, retry_interval=2.0, max_retries=60):
+        """Auto-connect with retries until bridge is available"""
+        retries = 0
+        while retries < max_retries:
+            try:
+                self.host, self.port = discover_bridge(self.secret_hash)
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                print(f"Connecting to {self.host}:{self.port}...")
+                self.sock.connect((self.host, self.port))
+                print("Connected.")
+                return True
+            except (TimeoutError, ConnectionRefusedError, OSError) as e:
+                retries += 1
+                if retries < max_retries:
+                    print(f"Bridge not ready, retrying... ({retries}/{max_retries})")
+                    time.sleep(retry_interval)
+                else:
+                    raise Exception(f"Failed to connect after {max_retries} attempts")
+        return False
 
     def close(self):
         if self.sock:

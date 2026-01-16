@@ -35,7 +35,8 @@ export default function HomeScreen() {
     "jumping",
     "cycling",
     "stairs_up",
-    "stairs_down"
+    "stairs_down",
+    "idle"
   ];
 
   console.log("HomeScreen render - connection state:", connection);
