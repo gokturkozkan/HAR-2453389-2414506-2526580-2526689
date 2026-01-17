@@ -45,7 +45,7 @@ def init_database():
 
 def seed_mock_unity_images():
     images_dir = Path(__file__).parent / 'mock-Unity'
-    files = ['jumping.png', 'sitting.png', 'standing.png']
+    files = ['idle.png', 'sit.png', 'walk.png']
     
     cursor = get_database().cursor()
     

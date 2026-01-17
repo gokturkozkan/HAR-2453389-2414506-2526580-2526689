@@ -28,14 +28,8 @@ export default function HomeScreen() {
   const sendLabel = labelApi().sendLabel;
 
   const activityLabels = [
-    "walking",
-    "running",
-    "sitting",
-    "standing",
-    "jumping",
-    "cycling",
-    "stairs_up",
-    "stairs_down",
+    "walk",
+    "sit",
     "idle"
   ];
 

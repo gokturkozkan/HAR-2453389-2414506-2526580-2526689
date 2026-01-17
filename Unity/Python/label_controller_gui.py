@@ -63,8 +63,9 @@ class LabelControllerGUI:
     def __init__(self, root, default_host: str = "", default_port: int = DEFAULT_REMOTE_PORT):
         self.root = root
         self.root.title("HAR Label Controller")
-        self.root.geometry("460x420")
-        self.root.resizable(False, False)
+        # High-DPI displays can clip the lower buttons; give extra vertical room.
+        self.root.geometry("460x560")
+        self.root.resizable(False, True)
 
         self.client = RemoteControllerClient()
         self.connected_to_remote = False
@@ -81,7 +82,7 @@ class LabelControllerGUI:
     
     def create_widgets(self):
         # Title
-        title_frame = tk.Frame(self.root, bg="#2c3e50", pady=15)
+        title_frame = tk.Frame(self.root, bg="#2c3e50", pady=12)
         title_frame.pack(fill=tk.X)
         
         title_label = tk.Label(
@@ -94,7 +95,7 @@ class LabelControllerGUI:
         title_label.pack()
         
         # Remote connection section
-        remote_frame = tk.Frame(self.root, pady=12)
+        remote_frame = tk.Frame(self.root, pady=8)
         remote_frame.pack(fill=tk.X, padx=20)
 
         tk.Label(remote_frame, text="Remote Controller IP/Host:", font=("Arial", 10)).grid(row=0, column=0, sticky="w")
@@ -109,7 +110,7 @@ class LabelControllerGUI:
         self.disconnect_btn.grid(row=1, column=1, pady=8, sticky="w")
 
         # Pairing code section
-        pairing_frame = tk.Frame(self.root, pady=10)
+        pairing_frame = tk.Frame(self.root, pady=8)
         pairing_frame.pack(fill=tk.X, padx=20)
         
         pairing_label = tk.Label(
@@ -151,8 +152,8 @@ class LabelControllerGUI:
         instructions.pack()
         
         # Buttons frame
-        buttons_frame = tk.Frame(self.root, pady=20)
-        buttons_frame.pack(fill=tk.X, padx=20)
+        buttons_frame = tk.Frame(self.root)
+        buttons_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 16))
         
         button_style = {
             "font": ("Arial", 14, "bold"),
@@ -168,7 +169,7 @@ class LabelControllerGUI:
             text="🚶 WALK",
             bg="#27ae60",
             fg="white",
-            command=lambda: self.send_label("walking"),
+            command=lambda: self.send_label("walk"),
             state=tk.DISABLED,
             **button_style
         )
@@ -192,7 +193,7 @@ class LabelControllerGUI:
             text="🪑 SIT",
             bg="#3498db",
             fg="white",
-            command=lambda: self.send_label("sitting"),
+            command=lambda: self.send_label("sit"),
             state=tk.DISABLED,
             **button_style
         )
@@ -274,9 +275,9 @@ class LabelControllerGUI:
     def flash_button(self, label):
         """Visual feedback for button press"""
         btn_map = {
-            "walking": self.walk_btn,
+            "walk": self.walk_btn,
             "idle": self.idle_btn,
-            "sitting": self.sit_btn
+            "sit": self.sit_btn
         }
         
         btn = btn_map.get(label)
