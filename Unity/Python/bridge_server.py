@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import sys
 import os
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,9 @@ SALT = b"unity-bridge-salt-01"
 SECRET_HASH = None
 PAIRING_START_TIME = time.time()
 ALLOWED_IP = None
+
+# HAR Backend URL - hardcoded for demo
+HAR_BACKEND_URL = "http://192.168.0.100:5000"
 
 #hashing and init
 def compute_secret_hash(code: str) -> str:
@@ -47,10 +51,13 @@ def init_secret_from_argv():
     SECRET_HASH = compute_secret_hash(pairing_code)
     PAIRING_START_TIME = time.time()
 
+    print("\n" + "="*50)
     print(" UNITY BRIDGE STARTED ")
-    print("PAIRING MODE:")
-    print(f"  Pairing code provided by Unity: '{pairing_code}'")
-    print(f"  Pairing window: {PAIRING_WINDOW_SECONDS} seconds")
+    print("="*50)
+    print(f"\nPairing code: {pairing_code}")
+    print(f"Pairing window: {PAIRING_WINDOW_SECONDS} seconds")
+    print(f"HAR Backend: {HAR_BACKEND_URL}")
+    print("="*50 + "\n")
 
 #data log part
 def log_message(message_dict):
@@ -118,6 +125,19 @@ def handle_client(conn, addr):
 
                 print(f"running fine {addr}: {msg}")
                 log_message(msg)
+                
+                # Also update HAR backend if URL is configured
+                label = msg.get("label")
+                if HAR_BACKEND_URL and label:
+                    try:
+                        requests.post(
+                            f"{HAR_BACKEND_URL}/label",
+                            json={"label": label},
+                            timeout=2.0
+                        )
+                        print(f"[bridge_server] Label '{label}' sent to HAR backend")
+                    except Exception as be:
+                        print(f"[bridge_server] Failed to update HAR backend: {be}")
 
 def tcp_server():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

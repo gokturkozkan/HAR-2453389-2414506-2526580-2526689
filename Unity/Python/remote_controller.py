@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import socket
 import threading
 import time
@@ -7,11 +8,14 @@ import hmac
 import hashlib
 import random
 import string
+import requests
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 
 DISCOVERY_PORT = 5006
+# HAR Backend URL - hardcoded for demo
+HAR_BACKEND_URL = "http://192.168.0.100:5000"
 DISCOVERY_TIMEOUT = 3.0  # seconds
 
 # GUI (on another PC) connects to this control port on the remote controller machine.
@@ -153,6 +157,19 @@ class RemoteController:
 
         try:
             sock.sendall(line.encode("utf-8"))
+            
+            # Also update HAR backend if URL is configured
+            if HAR_BACKEND_URL:
+                try:
+                    requests.post(
+                        f"{HAR_BACKEND_URL}/label",
+                        json={"label": label},
+                        timeout=2.0
+                    )
+                    print(f"[remote_controller] Label '{label}' sent to HAR backend")
+                except Exception as be:
+                    print(f"[remote_controller] Failed to update HAR backend: {be}")
+            
             return True, "ok"
         except Exception as e:
             with self._lock:
@@ -248,7 +265,8 @@ def main() -> None:
     print("\n  REMOTE CONTROLLER STARTED ")
     print("PAIRING CODE:")
     print(f"    {pairing_code}")
-    print("\nStart the Unity bridge with the SAME code (bridge_server.py <PAIRING_CODE>).")
+    print(f"\nHAR Backend: {HAR_BACKEND_URL}")
+    print("\nStart the Unity bridge with the SAME code (bridge_server.py).")
     print("Then connect your GUI to this machine and press label buttons.\n")
 
     run_control_server(controller, args.control_host, args.control_port)

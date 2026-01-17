@@ -11,12 +11,19 @@ def clear_label():
 @label_bp.route('/label', methods=['GET'])
 def get_label():
     try:
-        #TODO: MODEL WILL GIVE LABEL HERE:
-        #FOR NOW ITS JUST SITTING
-        label = "sitting"
+        # Get the current label from database
+        label_row = db_get('SELECT name FROM labels WHERE id = 1')
+        label = label_row.get('name') if label_row else 'idle'
         
-        # Find the corresponding image in unity_images with matching name (e.g., "sitting.png")
-        image_row = db_get('SELECT data FROM unity_images WHERE name = ?', [f'{label}.png'])
+        # Default to 'idle' if empty
+        if not label:
+            label = 'idle'
+        
+        # Normalize to lowercase for matching
+        label_lower = label.lower().strip()
+        
+        # Find the corresponding image (case-insensitive match)
+        image_row = db_get('SELECT data, name FROM unity_images WHERE LOWER(name) = ?', [f'{label_lower}.png'])
         
         if not image_row or not image_row.get('data'):
             return jsonify({'message': f'Image not found for label: {label}'}), 404
@@ -29,7 +36,7 @@ def get_label():
             image_base64 = image_data
         
         return jsonify({
-            'label': label,
+            'label': label_lower,
             'image': image_base64
         })
     except Exception as error:
@@ -45,14 +52,18 @@ def update_label():
         if not label or not isinstance(label, str):
             return jsonify({'message': 'Label is required and must be a string'}), 400
         
-        # Update the label in the database
-        db_run('UPDATE labels SET name = ? WHERE id = 1', [label])
+        # Normalize to lowercase
+        label_lower = label.lower().strip()
         
-        # Get the corresponding image
-        image_row = db_get('SELECT data FROM unity_images WHERE name = ?', [f'{label}.png'])
+        # Check if matching image exists (case-insensitive)
+        image_row = db_get('SELECT data, name FROM unity_images WHERE LOWER(name) = ?', [f'{label_lower}.png'])
         
         if not image_row or not image_row.get('data'):
-            return jsonify({'message': f'Image not found for label: {label}'}), 404
+            return jsonify({'message': f'Image not found for label: {label_lower}'}), 404
+        
+        # Update the label in the database (store lowercase)
+        db_run('UPDATE labels SET name = ? WHERE id = 1', [label_lower])
+        print(f'[label] Updated label to: {label_lower}')
         
         # Convert image data to base64
         image_data = image_row['data']
@@ -63,7 +74,7 @@ def update_label():
         
         return jsonify({
             'message': 'Label updated successfully',
-            'label': label,
+            'label': label_lower,
             'image': image_base64
         })
     except Exception as error:
