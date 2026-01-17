@@ -158,17 +158,20 @@ class RemoteController:
         try:
             sock.sendall(line.encode("utf-8"))
             
-            # Also update HAR backend if URL is configured
+            # Also update HAR backend in background thread (non-blocking)
             if HAR_BACKEND_URL:
-                try:
-                    requests.post(
-                        f"{HAR_BACKEND_URL}/label",
-                        json={"label": label},
-                        timeout=2.0
-                    )
-                    print(f"[remote_controller] Label '{label}' sent to HAR backend")
-                except Exception as be:
-                    print(f"[remote_controller] Failed to update HAR backend: {be}")
+                def send_to_backend():
+                    try:
+                        requests.post(
+                            f"{HAR_BACKEND_URL}/label",
+                            json={"label": label},
+                            timeout=5.0
+                        )
+                        print(f"[remote_controller] Label '{label}' sent to HAR backend")
+                    except Exception as be:
+                        print(f"[remote_controller] Failed to update HAR backend: {be}")
+                
+                threading.Thread(target=send_to_backend, daemon=True).start()
             
             return True, "ok"
         except Exception as e:

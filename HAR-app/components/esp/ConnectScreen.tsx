@@ -39,30 +39,38 @@ export default function ConnectScreen() {
     setConnectingId(id);
     try {
       const data = await getEspStatus(id);
-      setEsps((prev) => {
-        const updated = prev.map((esp) => (
+      setEsps((prev) => 
+        prev.map((esp) => (
           esp.id === id ? { ...esp, isConnected: data.isConnected } : esp
-        ));
-        
-        // Check connection status after updating
-        const allConnected = updated.every((esp) => esp.isConnected === true);
-        console.log("After update - all connected:", allConnected);
-        setConnection(allConnected);
-        console.log(connection)
-        return updated;
-      });
+        ))
+      );
     } finally {
       setConnectingId(null);
     }
   }
 
+  // Separate useEffect to update connection based on esps state
+  // Only update if all ESPs have been explicitly checked (not null)
+  useEffect(() => {
+    if (esps.length === 0) return;
+    
+    // Only consider ESPs that have been checked (isConnected is not null)
+    const checkedEsps = esps.filter((esp) => esp.isConnected !== null);
+    if (checkedEsps.length === 0) return; // Don't update if no ESPs have been checked yet
+    
+    const allConnected = checkedEsps.length === esps.length && esps.every((esp) => esp.isConnected === true);
+    console.log("ESP status changed - all connected:", allConnected, "esps:", esps);
+    setConnection(allConnected);
+  }, [esps, setConnection]);
+
   useEffect(() => {
     fetchEsps(true);
   }, []);
 
-  // Periodically check connection status
+  // Periodically check connection status - but DON'T reset on error
   useEffect(() => {
     if (esps.length === 0) return;
+    if (!connection) return; // Only poll if we're connected
 
     const checkConnections = async () => {
       try {
@@ -70,33 +78,33 @@ export default function ConnectScreen() {
         const connectedEsps = esps.filter(esp => esp.isConnected === true);
         if (connectedEsps.length === 0) return;
 
-        // Check each connected ESP
+        // Check each connected ESP - but don't set false on network error
         const statusPromises = connectedEsps.map(esp => 
-          getEspStatus(esp.id).catch(() => ({ isConnected: false }))
+          getEspStatus(esp.id).catch((err) => {
+            console.log(`ESP ${esp.id} check failed:`, err.message);
+            return null; // Return null on error, not false
+          })
         );
         
         const statuses = await Promise.all(statusPromises);
         
-        setEsps((prev) => {
-          const updated = prev.map((esp, index) => {
+        setEsps((prev) => 
+          prev.map((esp) => {
             const connectedIndex = connectedEsps.findIndex(e => e.id === esp.id);
-            if (connectedIndex !== -1) {
+            if (connectedIndex !== -1 && statuses[connectedIndex] !== null) {
+              // Only update if we got a valid response
               return { ...esp, isConnected: statuses[connectedIndex].isConnected };
             }
-            return esp;
-          });
-          
-          const allConnected = updated.every((esp) => esp.isConnected === true);
-          setConnection(allConnected);
-          return updated;
-        });
+            return esp; // Keep existing state on error
+          })
+        );
       } catch (e) {
         console.error("Failed to check connection status", e);
       }
     };
 
-    // Check every 5 seconds
-    const interval = setInterval(checkConnections, 5000);
+    // Check every 10 seconds (less aggressive)
+    const interval = setInterval(checkConnections, 10000);
 
     return () => clearInterval(interval);
   }, [esps.length, connection]);

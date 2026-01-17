@@ -35,6 +35,7 @@ export default function HomeScreen() {
 
   console.log("HomeScreen render - connection state:", connection);
 
+  // Initial fetch when screen gains focus
   useFocusEffect(
     useCallback(() => {
       if (!connection) return;
@@ -62,10 +63,33 @@ export default function HomeScreen() {
     }, [connection])
   );
 
+  // Poll for label updates every 2 seconds when connected
+  useEffect(() => {
+    if (!connection) return;
+
+    const pollLabel = async () => {
+      try {
+        const data = await getLabelRef.current();
+        // Only update if label changed
+        if (data.label !== label?.label) {
+          console.log(`Label changed from ${label?.label} to ${data.label}`);
+          setLabel(data);
+        }
+      } catch (e: any) {
+        console.error("Poll error:", e.message);
+      }
+    };
+
+    const interval = setInterval(pollLabel, 2000);
+    return () => clearInterval(interval);
+  }, [connection, label?.label]);
+
   const labelChangeHandler = async(activity: string) => {
     try {
       const data = await sendLabel(activity);
       console.log(`new label sent ${ activity }`)
+      // Update the label state with the new data from the response
+      setLabel({ label: data.label, image: data.image });
       setMessage(["success", `Sent new label ${ activity }`]);
     } catch (e: any) {
       setMessage(["error", e.message]);
@@ -82,7 +106,7 @@ export default function HomeScreen() {
               <>
                 <Text style={{ marginBottom: 8 }}>Connected</Text>
                 {loading && <ActivityIndicator size="large" color="#1e293b" style={{ marginBottom: 16 }} />}
-                {message && message[0] == "success" && 
+                {!loading && label && 
                   <View style={styles.labelContainer}>
                     <Text style={styles.labelText}>{label?.label}</Text>
                     {label?.image && (

@@ -126,18 +126,21 @@ def handle_client(conn, addr):
                 print(f"running fine {addr}: {msg}")
                 log_message(msg)
                 
-                # Also update HAR backend if URL is configured
+                # Also update HAR backend in background thread (non-blocking)
                 label = msg.get("label")
                 if HAR_BACKEND_URL and label:
-                    try:
-                        requests.post(
-                            f"{HAR_BACKEND_URL}/label",
-                            json={"label": label},
-                            timeout=2.0
-                        )
-                        print(f"[bridge_server] Label '{label}' sent to HAR backend")
-                    except Exception as be:
-                        print(f"[bridge_server] Failed to update HAR backend: {be}")
+                    def send_to_backend(lbl):
+                        try:
+                            requests.post(
+                                f"{HAR_BACKEND_URL}/label",
+                                json={"label": lbl},
+                                timeout=5.0
+                            )
+                            print(f"[bridge_server] Label '{lbl}' sent to HAR backend")
+                        except Exception as be:
+                            print(f"[bridge_server] Failed to update HAR backend: {be}")
+                    
+                    threading.Thread(target=send_to_backend, args=(label,), daemon=True).start()
 
 def tcp_server():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
