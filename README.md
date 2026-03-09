@@ -135,6 +135,7 @@ As shown in the **Level-0 DFD and activity diagrams in the SDD (pages 5–11)**:
 
 ## Repository Structure
 
+
 ```text
 ├── Hardware/                # Raspberry Pi 5 code (data pipeline + ML inference) and ESP32 firmware (IMU configuration + Bluetooth streaming)
 │   ├── RaspberryPi/
