@@ -10,6 +10,7 @@ from routes.esp import esp_bp
 from routes.admin import admin_bp
 from routes.user import user_bp
 from routes.label import label_bp, clear_label
+from routes.activity import activity_bp, load_model
 
 load_dotenv()
 
@@ -31,6 +32,7 @@ app.register_blueprint(esp_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
 app.register_blueprint(label_bp)
+app.register_blueprint(activity_bp)
 
 # Health check endpoint
 @app.route('/health', methods=['GET'])
@@ -61,6 +63,7 @@ if __name__ == '__main__':
         init_database()
         print('Database initialized')
         clear_label()
+        load_model()
         
         PORT = int(os.getenv('PORT', 3000))
         ENV = os.getenv('NODE_ENV', 'development')
