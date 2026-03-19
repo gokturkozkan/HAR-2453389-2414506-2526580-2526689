@@ -53,7 +53,7 @@ def get_esp_list():
 @esp_bp.route('/esp-status/<int:device_id>', methods=['POST'])
 def update_esp_status(device_id):
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         is_connected = data.get('isConnected')
         
         # Check if device exists
@@ -71,6 +71,9 @@ def update_esp_status(device_id):
                 'UPDATE esp_devices SET is_connected = ? WHERE id = ?',
                 [1 if is_connected else 0, device_id]
             )
+
+        state = 'connected' if is_connected else 'disconnected'
+        print(f'[ESP] Node {device_id} marked as {state} in database')
         
         return jsonify({'message': 'Device status updated', 'id': device_id})
     except Exception as error:

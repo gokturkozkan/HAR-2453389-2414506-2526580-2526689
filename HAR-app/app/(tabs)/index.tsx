@@ -21,61 +21,44 @@ export default function HomeScreen() {
   const [ loading, setLoading ] = useState<boolean>(false);
   const [ message, setMessage ] = useState<[string, string] | null>(null);
   const [ label, setLabel ] = useState<labelType>();
-  const { connection } = useContext(ConnectionContext);
-  const [ newLabel, setNewLabel ] = useState<string>("");
-  const [ dropdownVisible, setDropdownVisible ] = useState<boolean>(false);
-  const getLabelRef = useRef(labelApi().getLabel);
-  const sendLabel = labelApi().sendLabel;
-
-  const activityLabels = [
-    "walking",
-    "running",
-    "sitting",
-    "standing",
-    "jumping",
-    "cycling",
-    "stairs_up",
-    "stairs_down"
-  ];
+  const { connection, setConnection } = useContext(ConnectionContext);
+  const { getLabel } = labelApi();
 
   console.log("HomeScreen render - connection state:", connection);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!connection) return;
-
-      let isActive = true;
-
-      (async () => {
-        setLoading(true);
-        try {
-          const data = await getLabelRef.current();
-          if (!isActive) return; // prevent state updates if user leaves screen
-          setLabel(data);
-          setMessage(["success", `Received label: ${data.label}`]);
-        } catch (e: any) {
-          if (!isActive) return;
-          setMessage(["error", e.message]);
-        } finally {
-          if (isActive) setLoading(false);
-        }
-      })();
-
-      return () => {
-        isActive = false;
-      };
-    }, [connection])
-  );
-
-  const labelChangeHandler = async(activity: string) => {
+  const fetchLabel = useCallback(async() => {
+    if(!connection) return;
+    
     try {
-      const data = await sendLabel(activity);
-      console.log(`new label sent ${ activity }`)
-      setMessage(["success", `Sent new label ${ activity }`]);
+      setLoading(true);
+      const data = await getLabel();
+      setLabel(data);
+      setMessage(["success", `Received label: ${data.label}`]);
     } catch (e: any) {
       setMessage(["error", e.message]);
+      console.error("Label fetch error:", e);
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [connection, getLabel]);
+
+  useEffect(() => {
+    if(connection) {
+      console.log("useEffect triggered - fetching label");
+      fetchLabel();
+    }
+  }, [connection, fetchLabel]);
+
+  // Also refetch when the Home tab gains focus
+  useFocusEffect(
+    useCallback(() => {
+      setConnection(true);
+      console.log("Home tab focused - connection:", connection);
+      if (connection) {
+        fetchLabel();
+      }
+    }, [connection, fetchLabel])
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -96,48 +79,6 @@ export default function HomeScreen() {
                         style={styles.labelImage}
                       />
                     )}
-                    <Text style={styles.label}>Re-label</Text>
-                    <Pressable 
-                      style={styles.dropdown}
-                      onPress={() => {
-                        setDropdownVisible(true);
-                      }}
-                    >
-                      <Text style={newLabel ? styles.dropdownText : styles.dropdownPlaceholder}>
-                        {newLabel || "Select a label"}
-                      </Text>
-                      <Text style={styles.dropdownArrow}>▼</Text>
-                    </Pressable>
-
-                    <Modal
-                      visible={dropdownVisible}
-                      transparent={true}
-                      animationType="fade"
-                      onRequestClose={() => setDropdownVisible(false)}
-                    >
-                      <Pressable 
-                        style={styles.modalOverlay}
-                        onPress={() => setDropdownVisible(false)}
-                      >
-                        <View style={styles.dropdownMenu}>
-                          <ScrollView>
-                            {activityLabels.map((activity) => (
-                              <Pressable
-                                key={activity}
-                                style={styles.dropdownItem}
-                                onPress={() => {
-                                  setNewLabel(activity);
-                                  setDropdownVisible(false);
-                                  labelChangeHandler(activity);
-                                }}
-                              >
-                                <Text style={styles.dropdownItemText}>{activity}</Text>
-                              </Pressable>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      </Pressable>
-                    </Modal>
                   </View>
                 }
                 {message && message[0] == "error" && <Text style={styles.error}>{message[1]}</Text>}
@@ -188,59 +129,6 @@ const styles = StyleSheet.create({
   headerContainer: {
     alignItems: "center",
     marginBottom: 20,
-  },
-  dropdown: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    backgroundColor: "#f8fafc",
-    borderColor: "#cbd5e1",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  dropdownText: {
-    fontSize: 15,
-    color: "#000",
-    textTransform: "capitalize",
-  },
-  dropdownPlaceholder: {
-    fontSize: 15,
-    color: "#999",
-  },
-  dropdownArrow: {
-    fontSize: 12,
-    color: "#666",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  dropdownMenu: {
-    backgroundColor: "white",
-    borderRadius: 10,
-    width: "80%",
-    maxHeight: 300,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  dropdownItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  dropdownItemText: {
-    fontSize: 16,
-    color: "#000",
-    textTransform: "capitalize",
   },
   row: {
     flexDirection: "row",

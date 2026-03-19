@@ -140,6 +140,17 @@ def upsert_current_label(label):
         db_run('INSERT INTO labels (id, name) VALUES (1, ?)', [label])
 
 
+def mark_esp_connected_if_known(node_id):
+    if node_id is None:
+        return
+
+    row = db_get('SELECT id FROM esp_devices WHERE id = ?', [node_id])
+    if row:
+        db_run('UPDATE esp_devices SET is_connected = 1 WHERE id = ?', [node_id])
+    else:
+        db_run('INSERT INTO esp_devices (id, is_connected) VALUES (?, 1)', [node_id])
+
+
 def remember_latest_window(node_id, readings, predicted_label):
     global LAST_NODE_ID
     key = node_id if node_id is not None else '_default'
@@ -174,10 +185,14 @@ def predict_endpoint():
         validate_sensor_readings(readings)
 
         activity, confidence = predict_activity(readings)
+        mark_esp_connected_if_known(node_id)
         remember_latest_window(node_id, readings, activity)
 
         # Keep /label aligned with latest model output for frontend polling.
         upsert_current_label(activity)
+        print(
+            f"[PREDICT] node={node_id} label={activity} confidence={round(confidence, 4)}"
+        )
 
         return jsonify({
             'node_id': node_id,

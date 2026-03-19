@@ -68,6 +68,10 @@ def update_label():
             'INSERT INTO relabels (node_id, original_label, new_label, sensor_data) VALUES (?, ?, ?, ?)',
             [latest.get('node_id'), previous_label, label, sensor_data_json],
         )
+
+        print(
+            f"[RELABEL] node={latest.get('node_id')} from={previous_label} to={label}"
+        )
         
         # Manual relabeling is allowed and immediately reflected in /label.
         db_run('UPDATE labels SET name = ? WHERE id = 1', [label])
