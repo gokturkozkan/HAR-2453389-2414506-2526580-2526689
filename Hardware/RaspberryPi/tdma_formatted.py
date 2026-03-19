@@ -188,14 +188,14 @@ def request_sample(node_id, serials, health):
 def parse_frame(line):
     try:
         parts = line.split(",")
-        if len(parts) != 12:
+        # Accept frames that include at least node_id, time, accel, and gyro values.
+        # Extra values (e.g., magnetometer/temp) are ignored.
+        if len(parts) < 8:
             return None
         node_id = int(parts[0])
         t = int(parts[1])
         ax, ay, az = map(float, parts[2:5])
         gx, gy, gz = map(float, parts[5:8])
-        mx, my, mz = map(float, parts[8:11])
-        temp = float(parts[11])
         return {
             "node_id": node_id,
             "t": t,
@@ -205,10 +205,6 @@ def parse_frame(line):
             "gx": gx,
             "gy": gy,
             "gz": gz,
-            "mx": mx,
-            "my": my,
-            "mz": mz,
-            "temp": temp,
         }
     except Exception:
         return None
@@ -222,9 +218,6 @@ def scientific_row(data):
     gx_milli = int(round(data["gx"] * 1000))
     gy_milli = int(round(data["gy"] * 1000))
     gz_milli = int(round(data["gz"] * 1000))
-    mx_milli = int(round(data["mx"] * 1000))
-    my_milli = int(round(data["my"] * 1000))
-    mz_milli = int(round(data["mz"] * 1000))
     return (
         t_ms,
         ax_mg,
@@ -233,9 +226,6 @@ def scientific_row(data):
         gx_milli,
         gy_milli,
         gz_milli,
-        mx_milli,
-        my_milli,
-        mz_milli,
     )
 
 
@@ -243,9 +233,7 @@ def print_table(latest, active_nodes):
     os.system("clear")
     print("===== TDMA Sensor Dashboard =====")
     print()
-    header = (
-        "Node | MILLISEC |  accX    accY    accZ  |  gyroX   gyroY   gyroZ  |   magX     magY     magZ"
-    )
+    header = "Node | MILLISEC |  accX    accY    accZ  |  gyroX   gyroY   gyroZ"
     print(header)
     print("-" * len(header))
 
@@ -253,7 +241,7 @@ def print_table(latest, active_nodes):
         data = latest.get(node_id)
         if data is None:
             print(
-                f"  {node_id:2d} |   ---   |   ---    ---    --- |   ---    ---    --- |    ---     ---     ---"
+                f"  {node_id:2d} |   ---   |   ---    ---    --- |   ---    ---    ---"
             )
         else:
             (
@@ -264,12 +252,9 @@ def print_table(latest, active_nodes):
                 gx_milli,
                 gy_milli,
                 gz_milli,
-                mx_milli,
-                my_milli,
-                mz_milli,
             ) = scientific_row(data)
             print(
-                f"  {node_id:2d} | {t_ms:7d} | {ax_mg:6d} {ay_mg:6d} {az_mg:6d} | {gx_milli:6d} {gy_milli:6d} {gz_milli:6d} | {mx_milli:7d} {my_milli:7d} {mz_milli:7d}"
+                f"  {node_id:2d} | {t_ms:7d} | {ax_mg:6d} {ay_mg:6d} {az_mg:6d} | {gx_milli:6d} {gy_milli:6d} {gz_milli:6d}"
             )
 
 

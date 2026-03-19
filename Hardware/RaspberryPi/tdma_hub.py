@@ -176,14 +176,14 @@ def request_sample(node_id, serials, health):
 def parse_frame(line):
     try:
         parts = line.split(",")
-        if len(parts) != 12:
+        # Accept at least node_id, time, accel, and gyro values.
+        # Extra values (e.g., magnetometer/temp) are ignored.
+        if len(parts) < 8:
             return None
         node_id = int(parts[0])
         t = int(parts[1])
         ax, ay, az = map(float, parts[2:5])
         gx, gy, gz = map(float, parts[5:8])
-        mx, my, mz = map(float, parts[8:11])
-        temp = float(parts[11])
         return {
             "node_id": node_id,
             "t": t,
@@ -193,10 +193,6 @@ def parse_frame(line):
             "gx": gx,
             "gy": gy,
             "gz": gz,
-            "mx": mx,
-            "my": my,
-            "mz": mz,
-            "temp": temp,
         }
     except Exception:
         return None
@@ -206,7 +202,7 @@ def print_table(latest, active_nodes, health):
     os.system("clear")
     print("===== TDMA Sensor Dashboard =====")
     print()
-    header = "Node | t(ms)  |  ax      ay      az   |  mx      my      mz   | temp(C) | err | wait"
+    header = "Node | t(ms)  |  ax      ay      az   |  gx      gy      gz   | err | wait"
     print(header)
     print("-" * len(header))
 
@@ -218,14 +214,14 @@ def print_table(latest, active_nodes, health):
         if data is None:
             print(
                 f"  {node_id:2d} |  ---   |   ---    ---    --- |"
-                f"   ---    ---    --- |  ---    | {h['errors']:3d} | {wait:4.1f}s"
+                f"   ---    ---    --- | {h['errors']:3d} | {wait:4.1f}s"
             )
         else:
             print(
                 f"  {node_id:2d} | {data['t']:6d} | "
                 f"{data['ax']:6.2f} {data['ay']:6.2f} {data['az']:6.2f} | "
-                f"{data['mx']:6.1f} {data['my']:6.1f} {data['mz']:6.1f} | "
-                f"{data['temp']:6.2f} | {h['errors']:3d} | {wait:4.1f}s"
+                f"{data['gx']:6.2f} {data['gy']:6.2f} {data['gz']:6.2f} | "
+                f"{h['errors']:3d} | {wait:4.1f}s"
             )
 
 

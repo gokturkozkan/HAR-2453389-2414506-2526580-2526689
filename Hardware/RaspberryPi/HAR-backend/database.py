@@ -36,7 +36,19 @@ def init_database():
             is_connected BOOLEAN DEFAULT 0
         )
     ''')
-    
+
+    # Stores user-corrected labels and the related sensor window for retraining.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS relabels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id INTEGER,
+            original_label TEXT,
+            new_label TEXT NOT NULL,
+            sensor_data TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     db_connection.commit()
     
     # Seed mock data

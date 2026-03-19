@@ -1,11 +1,11 @@
 import os
-import json
+import copy
 import torch
 import numpy as np
 from flask import Blueprint, request, jsonify
 from sklearn.preprocessing import StandardScaler
 
-from database import db_run
+from database import db_run, db_get
 
 activity_bp = Blueprint('activity', __name__)
 
@@ -15,6 +15,9 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 WINDOW_SIZE = 32
 
 LABELS = ['standing', 'walking', 'sitting', 'lying']
+REQUIRED_FEATURES = ('ax', 'ay', 'az', 'gx', 'gy', 'gz')
+LATEST_WINDOWS_BY_NODE = {}
+LAST_NODE_ID = None
 
 
 class HARNet(torch.nn.Module):
@@ -109,28 +112,81 @@ def predict_activity(sensor_data):
     return LABELS[activity_idx], confidence
 
 
+def validate_sensor_readings(sensor_data):
+    if not isinstance(sensor_data, list):
+        raise ValueError('Sensor readings must be a list')
+
+    if len(sensor_data) != WINDOW_SIZE:
+        raise ValueError(f'Exactly {WINDOW_SIZE} readings are required')
+
+    for i, reading in enumerate(sensor_data):
+        if not isinstance(reading, dict):
+            raise ValueError(f'Reading at index {i} must be an object')
+
+        for key in REQUIRED_FEATURES:
+            if key not in reading:
+                raise ValueError(f"Reading at index {i} is missing '{key}'")
+            try:
+                float(reading[key])
+            except (TypeError, ValueError):
+                raise ValueError(f"Reading at index {i} has non-numeric '{key}'")
+
+
+def upsert_current_label(label):
+    row = db_get('SELECT id FROM labels WHERE id = 1')
+    if row:
+        db_run('UPDATE labels SET name = ? WHERE id = 1', [label])
+    else:
+        db_run('INSERT INTO labels (id, name) VALUES (1, ?)', [label])
+
+
+def remember_latest_window(node_id, readings, predicted_label):
+    global LAST_NODE_ID
+    key = node_id if node_id is not None else '_default'
+    LATEST_WINDOWS_BY_NODE[key] = {
+        'node_id': node_id,
+        'predicted_label': predicted_label,
+        'readings': copy.deepcopy(readings),
+    }
+    LAST_NODE_ID = key
+
+
+def get_latest_window(node_id=None):
+    key = node_id if node_id is not None else LAST_NODE_ID
+    if key is None:
+        return None
+    item = LATEST_WINDOWS_BY_NODE.get(key)
+    if item is None and node_id is None:
+        item = LATEST_WINDOWS_BY_NODE.get('_default')
+    return copy.deepcopy(item) if item is not None else None
+
+
 @activity_bp.route('/predict', methods=['POST'])
 def predict_endpoint():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         node_id = data.get('node_id')
         readings = data.get('readings')
 
         if not readings:
             return jsonify({'error': 'No sensor readings provided'}), 400
 
-        activity, confidence = predict_activity(readings)
+        validate_sensor_readings(readings)
 
-        db_run(
-            'INSERT INTO activity_predictions (node_id, activity, confidence) VALUES (?, ?, ?)',
-            [node_id, activity, float(confidence)]
-        )
+        activity, confidence = predict_activity(readings)
+        remember_latest_window(node_id, readings, activity)
+
+        # Keep /label aligned with latest model output for frontend polling.
+        upsert_current_label(activity)
 
         return jsonify({
             'node_id': node_id,
             'activity': activity,
             'confidence': round(confidence, 4)
         })
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
