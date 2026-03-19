@@ -232,7 +232,6 @@ def try_reconnect(node_id, serials, health):
     serials[node_id] = ser
     h["opened_at"] = now
     h["next_try"] = now
-    report_esp_status(node_id, True)
     return True
 
 
@@ -244,7 +243,6 @@ def open_ports(active_nodes):
         if ser is not None:
             print(f"Opened node {node_id} on {port}")
             serials[node_id] = ser
-            report_esp_status(node_id, True)
         else:
             print(f"[ERROR] Could not open {port} for node {node_id}")
             serials[node_id] = None
@@ -367,6 +365,7 @@ def wait_for_initial_frames(
             line = request_sample(node_id, serials, health)
             parsed = parse_frame(line)
             if parsed is not None and parsed["node_id"] == node_id:
+                report_esp_status(node_id, True)
                 latest[node_id] = parsed
                 maybe_predict(node_id, parsed, node_windows, last_predict_at)
                 print(f"  Node {node_id}: first sample received.")
@@ -424,6 +423,7 @@ def main():
 
                 parsed = parse_frame(line)
                 if parsed is not None and parsed["node_id"] == node_id:
+                    report_esp_status(node_id, True)
                     latest[node_id] = parsed
                     maybe_predict(node_id, parsed, node_windows, last_predict_at)
 
