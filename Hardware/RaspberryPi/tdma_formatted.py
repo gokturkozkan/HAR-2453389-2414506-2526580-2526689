@@ -1,6 +1,9 @@
 import serial
 import time
 import os
+import json
+from collections import deque
+from urllib import request, error
 
 NODE_PORTS = {
     1: "/dev/rfcomm0",
@@ -24,6 +27,13 @@ EARLY_EIO_RETRY_DELAY = 0.25
 BACKOFF_BASE = 0.5
 BACKOFF_MAX = 10.0
 RESET_ERRORS_AFTER_OK_SECONDS = 5.0
+
+BACKEND_URL = os.getenv("HAR_BACKEND_URL", "http://127.0.0.1:3000")
+WINDOW_SIZE = 32
+PREDICT_MIN_INTERVAL_SECONDS = 1.0
+
+# Keeps last status we reported to backend so we don't spam identical updates.
+ESP_CONNECTED_CACHE = {}
 
 
 def choose_nodes():
@@ -70,6 +80,87 @@ def close_one(ser):
             ser.close()
     except Exception:
         pass
+
+
+def backend_post(path, payload, timeout=1.0):
+    url = f"{BACKEND_URL}{path}"
+    body = json.dumps(payload).encode("utf-8")
+    req = request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+            if not raw:
+                return True, {}
+            try:
+                return True, json.loads(raw)
+            except Exception:
+                return True, {"raw": raw}
+    except error.URLError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, str(e)
+
+
+def report_esp_status(node_id, is_connected):
+    prev = ESP_CONNECTED_CACHE.get(node_id)
+    if prev is is_connected:
+        return
+
+    ok, result = backend_post(
+        f"/esp-status/{node_id}",
+        {"isConnected": bool(is_connected)},
+        timeout=1.0,
+    )
+    if ok:
+        ESP_CONNECTED_CACHE[node_id] = bool(is_connected)
+        state = "connected" if is_connected else "disconnected"
+        print(f"[BACKEND] Node {node_id} marked {state}")
+    else:
+        print(f"[BACKEND] Failed to update ESP status for node {node_id}: {result}")
+
+
+def predict_window(node_id, window):
+    ok, result = backend_post(
+        "/predict",
+        {"node_id": node_id, "readings": window},
+        timeout=2.0,
+    )
+    if ok:
+        label = result.get("activity", "?")
+        conf = result.get("confidence", "?")
+        print(f"[PREDICT] Node {node_id}: {label} ({conf})")
+    else:
+        print(f"[PREDICT] Failed for node {node_id}: {result}")
+
+
+def maybe_predict(node_id, parsed, node_windows, last_predict_at):
+    window = node_windows[node_id]
+    window.append(
+        {
+            "ax": parsed["ax"],
+            "ay": parsed["ay"],
+            "az": parsed["az"],
+            "gx": parsed["gx"],
+            "gy": parsed["gy"],
+            "gz": parsed["gz"],
+        }
+    )
+
+    if len(window) < WINDOW_SIZE:
+        return
+
+    now = time.monotonic()
+    last = last_predict_at.get(node_id, 0.0)
+    if (now - last) < PREDICT_MIN_INTERVAL_SECONDS:
+        return
+
+    predict_window(node_id, list(window))
+    last_predict_at[node_id] = now
 
 
 def open_one(node_id):
@@ -120,6 +211,7 @@ def mark_error(node_id, serials, health, early=False):
     close_one(serials.get(node_id))
     serials[node_id] = None
     h["opened_at"] = 0.0
+    report_esp_status(node_id, False)
 
 
 def try_reconnect(node_id, serials, health):
@@ -140,6 +232,7 @@ def try_reconnect(node_id, serials, health):
     serials[node_id] = ser
     h["opened_at"] = now
     h["next_try"] = now
+    report_esp_status(node_id, True)
     return True
 
 
@@ -151,9 +244,11 @@ def open_ports(active_nodes):
         if ser is not None:
             print(f"Opened node {node_id} on {port}")
             serials[node_id] = ser
+            report_esp_status(node_id, True)
         else:
             print(f"[ERROR] Could not open {port} for node {node_id}")
             serials[node_id] = None
+            report_esp_status(node_id, False)
     return serials
 
 
@@ -258,7 +353,9 @@ def print_table(latest, active_nodes):
             )
 
 
-def wait_for_initial_frames(active_nodes, serials, latest, health):
+def wait_for_initial_frames(
+    active_nodes, serials, latest, health, node_windows, last_predict_at
+):
     print("\nWaiting for initial data from all selected nodes...")
     for node_id in active_nodes:
         start = time.monotonic()
@@ -271,6 +368,7 @@ def wait_for_initial_frames(active_nodes, serials, latest, health):
             parsed = parse_frame(line)
             if parsed is not None and parsed["node_id"] == node_id:
                 latest[node_id] = parsed
+                maybe_predict(node_id, parsed, node_windows, last_predict_at)
                 print(f"  Node {node_id}: first sample received.")
                 break
             else:
@@ -288,12 +386,21 @@ def main():
     serials = open_ports(active_nodes)
     health = make_health(active_nodes)
     latest = {}
+    node_windows = {nid: deque(maxlen=WINDOW_SIZE) for nid in active_nodes}
+    last_predict_at = {nid: 0.0 for nid in active_nodes}
 
     for nid in active_nodes:
         if serials.get(nid) is not None:
             health[nid]["opened_at"] = time.monotonic()
 
-    wait_for_initial_frames(active_nodes, serials, latest, health)
+    wait_for_initial_frames(
+        active_nodes,
+        serials,
+        latest,
+        health,
+        node_windows,
+        last_predict_at,
+    )
 
     try:
         while True:
@@ -318,6 +425,7 @@ def main():
                 parsed = parse_frame(line)
                 if parsed is not None and parsed["node_id"] == node_id:
                     latest[node_id] = parsed
+                    maybe_predict(node_id, parsed, node_windows, last_predict_at)
 
             now = time.perf_counter()
             frame_end = frame_start + FRAME_PERIOD
@@ -329,6 +437,8 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping TDMA hub...")
     finally:
+        for nid in active_nodes:
+            report_esp_status(nid, False)
         for ser in serials.values():
             close_one(ser)
 
