@@ -9,16 +9,11 @@ TCP_PORT = 5005
 DISCOVERY_PORT = 5006
 LOG_FILE = Path("unity_commands.log")
 
-# Optional: lock bridge to first discovered client IP
 ALLOWED_IP = None
 LOCK_FIRST_CLIENT_IP = True
 
 
 def log_message(message_dict):
-    """
-    Always overwrite unity_commands.log with only the latest JSON object.
-    Unity can read this file and process the latest command.
-    """
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     if "timestamp" not in message_dict:

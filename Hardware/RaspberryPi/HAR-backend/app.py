@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 import os
 import signal
 import sys
-import threading
 
 from database import init_database, close_database
 from routes.auth import auth_bp
@@ -14,7 +13,7 @@ from routes.user import user_bp
 from routes.label import label_bp, clear_label
 from routes.activity import activity_bp, load_model
 
-from remote_controller import UnityRemoteClient
+from remote_state import init_remote_client, get_remote_client, get_remote_status, remote_lock
 
 load_dotenv()
 
@@ -36,22 +35,6 @@ app.register_blueprint(user_bp)
 app.register_blueprint(label_bp)
 app.register_blueprint(activity_bp)
 
-remote_client = None
-remote_lock = threading.Lock()
-
-
-def init_remote_client():
-    global remote_client
-    with remote_lock:
-        if remote_client is None:
-            remote_client = UnityRemoteClient()
-    return remote_client
-
-
-def get_remote_client():
-    global remote_client
-    return remote_client
-
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -64,31 +47,15 @@ def health():
 
 @app.route("/remote/status", methods=["GET"])
 def remote_status():
-    global remote_client
-
-    if remote_client is None:
-        return jsonify({
-            "initialized": False,
-            "connected": False,
-            "host": None,
-            "port": None
-        }), 200
-
-    return jsonify({
-        "initialized": True,
-        "connected": remote_client.is_connected(),
-        "host": remote_client.host,
-        "port": remote_client.port
-    }), 200
+    return jsonify(get_remote_status()), 200
 
 
 @app.route("/remote/connect", methods=["POST"])
 def remote_connect():
-    global remote_client
-
     with remote_lock:
+        remote_client = get_remote_client()
         if remote_client is None:
-            remote_client = UnityRemoteClient()
+            remote_client = init_remote_client()
 
         if remote_client.is_connected():
             return jsonify({
@@ -113,9 +80,9 @@ def remote_connect():
 
 @app.route("/remote/disconnect", methods=["POST"])
 def remote_disconnect():
-    global remote_client
-
     with remote_lock:
+        remote_client = get_remote_client()
+
         if remote_client is None or not remote_client.is_connected():
             return jsonify({"message": "Not connected"}), 200
 
@@ -131,8 +98,6 @@ def remote_disconnect():
 
 @app.route("/remote/send-label", methods=["POST"])
 def remote_send_label():
-    global remote_client
-
     data = request.get_json(silent=True) or {}
     label = data.get("label")
 
@@ -140,6 +105,8 @@ def remote_send_label():
         return jsonify({"message": "label is required"}), 400
 
     with remote_lock:
+        remote_client = get_remote_client()
+
         if remote_client is None or not remote_client.is_connected():
             return jsonify({"message": "Remote controller is not connected"}), 400
 
@@ -162,11 +129,10 @@ def not_found(error):
 
 
 def graceful_shutdown(signum, frame):
-    global remote_client
-
     print("\nShutting down gracefully...")
 
     try:
+        remote_client = get_remote_client()
         if remote_client is not None and remote_client.is_connected():
             remote_client.close()
     except Exception as e:
@@ -195,7 +161,6 @@ if __name__ == "__main__":
         print(f"Environment: {ENV}")
 
         app.run(host="0.0.0.0", port=PORT, debug=(ENV == "development"))
-
     except Exception as error:
         print(f"Failed to start server: {error}")
         sys.exit(1)

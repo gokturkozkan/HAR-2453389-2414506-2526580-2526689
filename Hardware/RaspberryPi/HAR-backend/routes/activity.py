@@ -1,12 +1,12 @@
 import os
 import copy
 import torch
-from app import get_remote_client
 import numpy as np
 from flask import Blueprint, request, jsonify
 from sklearn.preprocessing import StandardScaler
 
 from database import db_run, db_get
+from remote_state import get_remote_client
 
 activity_bp = Blueprint('activity', __name__)
 
@@ -54,11 +54,11 @@ class HARNet(torch.nn.Module):
         )
 
     def forward(self, x):
-        x = x.transpose(1, 2)   # (B, F, T)
-        x = self.conv_block(x)  # (B, 128, T)
-        x = x.transpose(1, 2)   # (B, T, 128)
-        x, _ = self.lstm(x)     # (B, T, 256)
-        x = x[:, -1, :]         # last timestep
+        x = x.transpose(1, 2)
+        x = self.conv_block(x)
+        x = x.transpose(1, 2)
+        x, _ = self.lstm(x)
+        x = x[:, -1, :]
         x = self.classifier(x)
         return x
 
@@ -189,7 +189,6 @@ def predict_endpoint():
         mark_esp_connected_if_known(node_id)
         remember_latest_window(node_id, readings, activity)
 
-        # Keep /label aligned with latest model output for frontend polling.
         upsert_current_label(activity)
 
         try:
