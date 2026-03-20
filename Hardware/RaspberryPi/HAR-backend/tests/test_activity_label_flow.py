@@ -113,15 +113,42 @@ class ActivityLabelFlowTests(unittest.TestCase):
         self.assertEqual(len(parsed_sensor_data), 32)
         self.assertIn("ax", parsed_sensor_data[0])
 
+        labels_row = db_get(
+            "SELECT name, esp1, esp2, esp3, esp4, esp5, esp6, esp7 FROM labels WHERE id = 1"
+        )
+        self.assertEqual(labels_row["name"], "jumping")
+        self.assertIsNone(labels_row["esp1"])
+        self.assertIsNone(labels_row["esp2"])
+        self.assertIsNone(labels_row["esp3"])
+        self.assertIsNone(labels_row["esp4"])
+        self.assertIsNone(labels_row["esp5"])
+        self.assertIsNone(labels_row["esp6"])
+        self.assertTrue(isinstance(labels_row["esp7"], str) and len(labels_row["esp7"]) > 0)
+
+        esp7_readings = json.loads(labels_row["esp7"])
+        self.assertEqual(len(esp7_readings), 32)
+        self.assertIn("ax", esp7_readings[0])
+
         get_res = self.client.get("/label")
         self.assertEqual(get_res.status_code, 200)
         get_body = get_res.get_json()
         self.assertEqual(get_body["label"], "jumping")
 
-    def test_manual_label_requires_recent_sensor_window(self):
+    def test_manual_label_allows_missing_sensor_windows(self):
         res = self.client.post("/label", json={"label": "jumping", "node_id": 99})
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.get_json()["message"], "No recent sensor window available to relabel")
+        self.assertEqual(res.status_code, 200)
+
+        labels_row = db_get(
+            "SELECT name, esp1, esp2, esp3, esp4, esp5, esp6, esp7 FROM labels WHERE id = 1"
+        )
+        self.assertEqual(labels_row["name"], "jumping")
+        self.assertIsNone(labels_row["esp1"])
+        self.assertIsNone(labels_row["esp2"])
+        self.assertIsNone(labels_row["esp3"])
+        self.assertIsNone(labels_row["esp4"])
+        self.assertIsNone(labels_row["esp5"])
+        self.assertIsNone(labels_row["esp6"])
+        self.assertIsNone(labels_row["esp7"])
 
 
 if __name__ == "__main__":

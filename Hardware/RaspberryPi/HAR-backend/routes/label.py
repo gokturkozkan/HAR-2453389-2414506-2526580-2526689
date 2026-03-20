@@ -6,6 +6,17 @@ from routes.activity import get_latest_window
 
 label_bp = Blueprint('label', __name__)
 
+
+def _collect_latest_readings_by_esp():
+    latest_by_esp = {}
+    for esp_id in range(1, 8):
+        latest = get_latest_window(esp_id)
+        readings = latest.get('readings') if latest else None
+        latest_by_esp[f'esp{esp_id}'] = (
+            json.dumps(readings, separators=(',', ':')) if readings else None
+        )
+    return latest_by_esp
+
 def clear_label():
     """Clear the label in the database."""
     db_run('UPDATE labels SET name = ? WHERE id = 1', [''])  # Set label to empty string
@@ -59,7 +70,10 @@ def update_label():
 
         latest = get_latest_window(node_id)
         if not latest:
-            return jsonify({'message': 'No recent sensor window available to relabel'}), 400
+            latest = get_latest_window()
+        if not latest:
+            # Relabel requests are still accepted even when no node has sent data yet.
+            latest = {'node_id': node_id, 'predicted_label': None, 'readings': []}
 
         previous_label = latest.get('predicted_label')
         sensor_data_json = json.dumps(latest.get('readings', []), separators=(',', ':'))
@@ -69,12 +83,37 @@ def update_label():
             [latest.get('node_id'), previous_label, label, sensor_data_json],
         )
 
+        latest_by_esp = _collect_latest_readings_by_esp()
+
         print(
             f"[RELABEL] node={latest.get('node_id')} from={previous_label} to={label}"
         )
         
         # Manual relabeling is allowed and immediately reflected in /label.
-        db_run('UPDATE labels SET name = ? WHERE id = 1', [label])
+        db_run(
+            '''
+            UPDATE labels
+            SET name = ?,
+                esp1 = ?,
+                esp2 = ?,
+                esp3 = ?,
+                esp4 = ?,
+                esp5 = ?,
+                esp6 = ?,
+                esp7 = ?
+            WHERE id = 1
+            ''',
+            [
+                label,
+                latest_by_esp['esp1'],
+                latest_by_esp['esp2'],
+                latest_by_esp['esp3'],
+                latest_by_esp['esp4'],
+                latest_by_esp['esp5'],
+                latest_by_esp['esp6'],
+                latest_by_esp['esp7'],
+            ],
+        )
 
         image_base64 = _get_image_base64(label)
         if not image_base64:

@@ -94,9 +94,23 @@ def seed_labels_table():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS labels (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            name TEXT NOT NULL,
+            esp1 TEXT,
+            esp2 TEXT,
+            esp3 TEXT,
+            esp4 TEXT,
+            esp5 TEXT,
+            esp6 TEXT,
+            esp7 TEXT
         )
     ''')
+
+    # Backfill schema for existing databases created before esp columns existed.
+    cursor.execute('PRAGMA table_info(labels)')
+    existing_columns = {row['name'] for row in cursor.fetchall()}
+    for esp_col in ('esp1', 'esp2', 'esp3', 'esp4', 'esp5', 'esp6', 'esp7'):
+        if esp_col not in existing_columns:
+            cursor.execute(f'ALTER TABLE labels ADD COLUMN {esp_col} TEXT')
     
     # Check if empty
     cursor.execute('SELECT name FROM labels LIMIT 1')
