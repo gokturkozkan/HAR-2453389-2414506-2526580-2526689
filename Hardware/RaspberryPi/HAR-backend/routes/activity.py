@@ -1,6 +1,7 @@
 import os
 import copy
 import torch
+from app import get_remote_client
 import numpy as np
 from flask import Blueprint, request, jsonify
 from sklearn.preprocessing import StandardScaler
@@ -190,6 +191,17 @@ def predict_endpoint():
 
         # Keep /label aligned with latest model output for frontend polling.
         upsert_current_label(activity)
+
+        try:
+            remote_client = get_remote_client()
+            if remote_client is not None and remote_client.is_connected():
+                remote_client.send_label(activity, source="activity-predict")
+                print(f"[PREDICT] Sent label to bridge server: {activity}")
+            else:
+                print(f"[PREDICT] Remote controller not connected, label not sent: {activity}")
+        except Exception as remote_error:
+            print(f"[PREDICT] Failed to send label: {remote_error}")
+
         print(
             f"[PREDICT] node={node_id} label={activity} confidence={round(confidence, 4)}"
         )
