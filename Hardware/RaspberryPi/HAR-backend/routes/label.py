@@ -17,6 +17,7 @@ def _collect_latest_readings_by_esp():
         )
     return latest_by_esp
 
+
 def clear_label():
     """Clear the label in the database."""
     db_run('UPDATE labels SET name = ? WHERE id = 1', [''])  # Set label to empty string
@@ -39,6 +40,7 @@ def _resolve_current_label():
         return current['name']
     return None
 
+
 @label_bp.route('/label', methods=['GET'])
 def get_label():
     try:
@@ -58,13 +60,14 @@ def get_label():
         print(f'Error fetching label and image: {error}')
         return jsonify({'message': 'Error fetching label and image'}), 500
 
+
 @label_bp.route('/label', methods=['POST'])
 def update_label():
     try:
         data = request.get_json() or {}
         label = data.get('label')
         node_id = data.get('node_id')
-        
+
         if not label or not isinstance(label, str):
             return jsonify({'message': 'Label is required and must be a string'}), 400
 
@@ -73,7 +76,7 @@ def update_label():
             latest = get_latest_window()
         if not latest:
             # Relabel requests are still accepted even when no node has sent data yet.
-            latest = {'node_id': node_id, 'predicted_label': None, 'readings': []}
+            latest = {'node_id': node_id, 'node_ids': [], 'predicted_label': None, 'readings': []}
 
         previous_label = latest.get('predicted_label')
         sensor_data_json = json.dumps(latest.get('readings', []), separators=(',', ':'))
@@ -86,9 +89,9 @@ def update_label():
         latest_by_esp = _collect_latest_readings_by_esp()
 
         print(
-            f"[RELABEL] node={latest.get('node_id')} from={previous_label} to={label}"
+            f"[RELABEL] node={latest.get('node_id')} nodes={latest.get('node_ids', [])} from={previous_label} to={label}"
         )
-        
+
         # Manual relabeling is allowed and immediately reflected in /label.
         db_run(
             '''

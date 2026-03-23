@@ -124,21 +124,34 @@ def report_esp_status(node_id, is_connected):
         print(f"[BACKEND] Failed to update ESP status for node {node_id}: {result}")
 
 
-def predict_window(node_id, window):
+def predict_combined_window(active_nodes, node_windows):
+    windows_by_node = {}
+    for node_id in active_nodes:
+        window = node_windows[node_id]
+        if len(window) < WINDOW_SIZE:
+            return False
+        windows_by_node[str(node_id)] = list(window)
+
     ok, result = backend_post(
         "/predict",
-        {"node_id": node_id, "readings": window},
-        timeout=2.0,
+        {
+            "node_ids": active_nodes,
+            "windows_by_node": windows_by_node,
+        },
+        timeout=2.5,
     )
     if ok:
         label = result.get("activity", "?")
         conf = result.get("confidence", "?")
-        print(f"[PREDICT] Node {node_id}: {label} ({conf})")
+        used_nodes = result.get("used_node_ids", active_nodes)
+        print(f"[PREDICT] Combined nodes {used_nodes}: {label} ({conf})")
     else:
-        print(f"[PREDICT] Failed for node {node_id}: {result}")
+        print(f"[PREDICT] Combined prediction failed: {result}")
+    return ok
 
 
-def maybe_predict(node_id, parsed, node_windows, last_predict_at):
+def maybe_predict(active_nodes, parsed, node_windows, last_predict_at):
+    node_id = parsed["node_id"]
     window = node_windows[node_id]
     window.append(
         {
@@ -151,16 +164,16 @@ def maybe_predict(node_id, parsed, node_windows, last_predict_at):
         }
     )
 
-    if len(window) < WINDOW_SIZE:
+    if any(len(node_windows[nid]) < WINDOW_SIZE for nid in active_nodes):
         return
 
     now = time.monotonic()
-    last = last_predict_at.get(node_id, 0.0)
+    last = last_predict_at.get("combined", 0.0)
     if (now - last) < PREDICT_MIN_INTERVAL_SECONDS:
         return
 
-    predict_window(node_id, list(window))
-    last_predict_at[node_id] = now
+    if predict_combined_window(active_nodes, node_windows):
+        last_predict_at["combined"] = now
 
 
 def open_one(node_id):
@@ -367,7 +380,7 @@ def wait_for_initial_frames(
             if parsed is not None and parsed["node_id"] == node_id:
                 report_esp_status(node_id, True)
                 latest[node_id] = parsed
-                maybe_predict(node_id, parsed, node_windows, last_predict_at)
+                maybe_predict(active_nodes, parsed, node_windows, last_predict_at)
                 print(f"  Node {node_id}: first sample received.")
                 break
             else:
@@ -386,7 +399,7 @@ def main():
     health = make_health(active_nodes)
     latest = {}
     node_windows = {nid: deque(maxlen=WINDOW_SIZE) for nid in active_nodes}
-    last_predict_at = {nid: 0.0 for nid in active_nodes}
+    last_predict_at = {"combined": 0.0}
 
     for nid in active_nodes:
         if serials.get(nid) is not None:
@@ -425,7 +438,7 @@ def main():
                 if parsed is not None and parsed["node_id"] == node_id:
                     report_esp_status(node_id, True)
                     latest[node_id] = parsed
-                    maybe_predict(node_id, parsed, node_windows, last_predict_at)
+                    maybe_predict(active_nodes, parsed, node_windows, last_predict_at)
 
             now = time.perf_counter()
             frame_end = frame_start + FRAME_PERIOD
