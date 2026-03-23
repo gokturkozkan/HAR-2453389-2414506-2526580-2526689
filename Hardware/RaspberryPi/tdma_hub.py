@@ -1,6 +1,11 @@
-import serial
-import time
+import json
 import os
+import time
+import urllib.error
+import urllib.request
+from collections import deque
+
+import serial
 
 NODE_PORTS = {
     1: "/dev/rfcomm0",
@@ -25,6 +30,13 @@ EARLY_EIO_RETRY_DELAY = 0.25
 BACKOFF_BASE = 0.5
 BACKOFF_MAX = 10.0
 RESET_ERRORS_AFTER_OK_SECONDS = 5.0
+
+WINDOW_SIZE = 32
+PREDICT_EVERY = 4
+FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz")
+REQUIRE_ALL_NODES_FOR_FUSION = True
+
+PREDICT_URL = os.getenv("HAR_PREDICT_URL", "http://127.0.0.1:3000/predict")
 
 
 def choose_nodes():
@@ -176,14 +188,14 @@ def request_sample(node_id, serials, health):
 def parse_frame(line):
     try:
         parts = line.split(",")
-        # Accept at least node_id, time, accel, and gyro values.
-        # Extra values (e.g., magnetometer/temp) are ignored.
         if len(parts) < 8:
             return None
+
         node_id = int(parts[0])
         t = int(parts[1])
         ax, ay, az = map(float, parts[2:5])
         gx, gy, gz = map(float, parts[5:8])
+
         return {
             "node_id": node_id,
             "t": t,
@@ -198,10 +210,57 @@ def parse_frame(line):
         return None
 
 
-def print_table(latest, active_nodes, health):
+def build_fused_timestep(active_nodes, latest):
+    timestep = {"nodes": {}}
+
+    for node_id in active_nodes:
+        sample = latest.get(node_id)
+        if sample is None:
+            if REQUIRE_ALL_NODES_FOR_FUSION:
+                return None
+            timestep["nodes"][str(node_id)] = {key: 0.0 for key in FEATURE_KEYS}
+            continue
+
+        timestep["nodes"][str(node_id)] = {
+            "ax": sample["ax"],
+            "ay": sample["ay"],
+            "az": sample["az"],
+            "gx": sample["gx"],
+            "gy": sample["gy"],
+            "gz": sample["gz"],
+        }
+
+    return timestep
+
+
+def post_predict(window_payload):
+    payload = json.dumps({"readings": window_payload}).encode("utf-8")
+    request = urllib.request.Request(
+        PREDICT_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=3.0) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+            parsed = json.loads(body) if body else {}
+            return parsed, None
+    except urllib.error.URLError as exc:
+        return None, str(exc)
+    except Exception as exc:
+        return None, str(exc)
+
+
+def print_table(latest, active_nodes, health, fused_window_len, last_prediction):
     os.system("clear")
     print("===== TDMA Sensor Dashboard =====")
     print()
+    print(f"Fused window: {fused_window_len}/{WINDOW_SIZE}")
+    print(f"Last prediction: {last_prediction}")
+    print()
+
     header = "Node | t(ms)  |  ax      ay      az   |  gx      gy      gz   | err | wait"
     print(header)
     print("-" * len(header))
@@ -242,7 +301,7 @@ def warmup(active_nodes, serials, latest, health):
                 print(f"  Node {node_id}: first sample received.")
         time.sleep(POLL_SLEEP)
 
-    missing = [n for n in active_nodes if n not in got]
+    missing = [node_id for node_id in active_nodes if node_id not in got]
     if missing:
         print(f"[WARN] No initial data from: {missing} (will keep trying in main loop)")
     print("Starting main loop...\n")
@@ -253,12 +312,16 @@ def main():
     active_nodes = choose_nodes()
     print(f"Using nodes: {active_nodes}")
 
-    serials = {nid: None for nid in active_nodes}
+    serials = {node_id: None for node_id in active_nodes}
     health = make_health(active_nodes)
     latest = {}
 
-    for nid in active_nodes:
-        try_reconnect(nid, serials, health)
+    fused_window = deque(maxlen=WINDOW_SIZE)
+    rows_since_prediction = 0
+    last_prediction = "N/A"
+
+    for node_id in active_nodes:
+        try_reconnect(node_id, serials, health)
         time.sleep(0.05)
 
     warmup(active_nodes, serials, latest, health)
@@ -287,12 +350,25 @@ def main():
                 if parsed is not None and parsed["node_id"] == node_id:
                     latest[node_id] = parsed
 
+            fused_timestep = build_fused_timestep(active_nodes, latest)
+            if fused_timestep is not None:
+                fused_window.append(fused_timestep)
+                rows_since_prediction += 1
+
+            if len(fused_window) == WINDOW_SIZE and rows_since_prediction >= PREDICT_EVERY:
+                response, error = post_predict(list(fused_window))
+                rows_since_prediction = 0
+                if error:
+                    last_prediction = f"predict error: {error}"
+                else:
+                    last_prediction = response.get("predicted_label", "unknown")
+
             now = time.perf_counter()
             frame_end = frame_start + FRAME_PERIOD
             if now < frame_end:
                 time.sleep(frame_end - now)
 
-            print_table(latest, active_nodes, health)
+            print_table(latest, active_nodes, health, len(fused_window), last_prediction)
 
     except KeyboardInterrupt:
         print("\nStopping TDMA hub...")

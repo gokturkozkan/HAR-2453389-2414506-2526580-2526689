@@ -10,7 +10,7 @@ from routes.esp import esp_bp
 from routes.admin import admin_bp
 from routes.user import user_bp
 from routes.label import label_bp, clear_label
-from routes.activity import activity_bp, load_model
+from routes.activity import activity_bp
 
 load_dotenv()
 
@@ -63,7 +63,6 @@ if __name__ == '__main__':
         init_database()
         print('Database initialized')
         clear_label()
-        load_model()
         
         PORT = int(os.getenv('PORT', 3000))
         ENV = os.getenv('NODE_ENV', 'development')
