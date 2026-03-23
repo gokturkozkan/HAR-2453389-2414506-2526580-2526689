@@ -17,7 +17,7 @@ CLASS_LABELS = [
 ]
 MODEL_PATH = os.getenv(
     "HAR_MODEL_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "model", "best_model.pt"),
+    os.path.join(os.path.dirname(__file__), "..", "model", "HAR.pt"),
 )
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
