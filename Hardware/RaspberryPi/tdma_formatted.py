@@ -100,6 +100,14 @@ def backend_post(path, payload, timeout=1.0):
                 return True, json.loads(raw)
             except Exception:
                 return True, {"raw": raw}
+    except error.HTTPError as e:
+        # Surface backend validation errors (e.g., 400 payload shape issues).
+        try:
+            raw = e.read().decode("utf-8", errors="ignore")
+            parsed = json.loads(raw) if raw else {}
+        except Exception:
+            parsed = {"raw": str(e)}
+        return False, {"status": e.code, "error": parsed}
     except error.URLError as e:
         return False, str(e)
     except Exception as e:
@@ -125,15 +133,31 @@ def report_esp_status(node_id, is_connected):
 
 
 def predict_window(node_id, window):
+    # Backend /predict expects fused timesteps: [{"nodes": {"<id>": {features...}}}, ...]
+    fused_readings = [
+        {
+            "nodes": {
+                str(node_id): {
+                    "ax": sample["ax"],
+                    "ay": sample["ay"],
+                    "az": sample["az"],
+                    "gx": sample["gx"],
+                    "gy": sample["gy"],
+                    "gz": sample["gz"],
+                }
+            }
+        }
+        for sample in window
+    ]
+
     ok, result = backend_post(
         "/predict",
-        {"node_id": node_id, "readings": window},
+        {"readings": fused_readings},
         timeout=2.0,
     )
     if ok:
-        label = result.get("activity", "?")
-        conf = result.get("confidence", "?")
-        print(f"[PREDICT] Node {node_id}: {label} ({conf})")
+        label = result.get("predicted_label") or result.get("label") or "?"
+        print(f"[PREDICT] Node {node_id}: {label}")
     else:
         print(f"[PREDICT] Failed for node {node_id}: {result}")
 
