@@ -32,8 +32,11 @@ BACKEND_URL = os.getenv("HAR_BACKEND_URL", "http://127.0.0.1:3000")
 WINDOW_SIZE = 32
 PREDICT_MIN_INTERVAL_SECONDS = 1.0
 
-# Keeps last status we reported to backend so we don't spam identical updates.
 ESP_CONNECTED_CACHE = {}
+
+
+def clear_console():
+    print("\n" * 40)
 
 
 def choose_nodes():
@@ -101,13 +104,14 @@ def backend_post(path, payload, timeout=1.0):
             except Exception:
                 return True, {"raw": raw}
     except error.HTTPError as e:
-        # Surface backend validation errors (e.g., 400 payload shape issues).
         try:
             raw = e.read().decode("utf-8", errors="ignore")
-            parsed = json.loads(raw) if raw else {}
+            try:
+                return False, json.loads(raw) if raw else {}
+            except Exception:
+                return False, raw
         except Exception:
-            parsed = {"raw": str(e)}
-        return False, {"status": e.code, "error": parsed}
+            return False, f"HTTP Error {e.code}: {e.reason}"
     except error.URLError as e:
         return False, str(e)
     except Exception as e:
@@ -132,41 +136,42 @@ def report_esp_status(node_id, is_connected):
         print(f"[BACKEND] Failed to update ESP status for node {node_id}: {result}")
 
 
-def predict_window(node_id, window):
-    # Backend /predict expects fused timesteps: [{"nodes": {"<id>": {features...}}}, ...]
-    fused_readings = [
-        {
-            "nodes": {
-                str(node_id): {
-                    "ax": sample["ax"],
-                    "ay": sample["ay"],
-                    "az": sample["az"],
-                    "gx": sample["gx"],
-                    "gy": sample["gy"],
-                    "gz": sample["gz"],
-                }
-            }
-        }
-        for sample in window
-    ]
+def predict_combined_window(active_nodes, node_windows, prediction_state):
+    windows_by_node = {}
+    for node_id in active_nodes:
+        window = node_windows[node_id]
+        if len(window) < WINDOW_SIZE:
+            return False
+        windows_by_node[str(node_id)] = list(window)
 
-    ok, result = backend_post(
-        "/predict",
-        {"readings": fused_readings},
-        timeout=2.0,
-    )
+    payload = {
+        "node_ids": active_nodes,
+        "windows_by_node": windows_by_node,
+    }
+
+    ok, result = backend_post("/predict", payload, timeout=2.5)
     if ok:
-        label = result.get("predicted_label") or result.get("label") or "?"
-        print(f"[PREDICT] Node {node_id}: {label}")
+        label = result.get("activity", "?")
+        conf = result.get("confidence", "?")
+        used_nodes = result.get("used_node_ids", active_nodes)
+
+        prediction_state["label"] = label
+        prediction_state["confidence"] = conf
+        prediction_state["used_nodes"] = used_nodes
+
+        print(f"[PREDICT] Combined nodes {used_nodes}: {label} ({conf})")
     else:
+        prediction_state["label"] = "ERROR"
+        prediction_state["confidence"] = "-"
+        prediction_state["used_nodes"] = active_nodes
         print(f"[PREDICT] Combined prediction failed: {result}")
+
     return ok
 
 
-def maybe_predict(active_nodes, parsed, node_windows, last_predict_at):
+def maybe_predict(active_nodes, parsed, node_windows, last_predict_at, prediction_state):
     node_id = parsed["node_id"]
-    window = node_windows[node_id]
-    window.append(
+    node_windows[node_id].append(
         {
             "ax": parsed["ax"],
             "ay": parsed["ay"],
@@ -185,7 +190,7 @@ def maybe_predict(active_nodes, parsed, node_windows, last_predict_at):
     if (now - last) < PREDICT_MIN_INTERVAL_SECONDS:
         return
 
-    if predict_combined_window(active_nodes, node_windows):
+    if predict_combined_window(active_nodes, node_windows, prediction_state):
         last_predict_at["combined"] = now
 
 
@@ -307,8 +312,6 @@ def request_sample(node_id, serials, health):
 def parse_frame(line):
     try:
         parts = line.split(",")
-        # Accept frames that include at least node_id, time, accel, and gyro values.
-        # Extra values (e.g., magnetometer/temp) are ignored.
         if len(parts) < 8:
             return None
         node_id = int(parts[0])
@@ -348,10 +351,14 @@ def scientific_row(data):
     )
 
 
-def print_table(latest, active_nodes):
-    os.system("clear")
-    print("===== TDMA Sensor Dashboard =====")
+def print_table(latest, active_nodes, prediction_state):
+    clear_console()
+    print("===== TDMA Sensor Dashboard (REAL INPUT / REAL PREDICTION) =====")
+    predicted_label = prediction_state.get("label", "WAITING")
+    predicted_conf = prediction_state.get("confidence", "-")
+    print(f"Predicted label : {predicted_label} ({predicted_conf}) [BACKEND]")
     print()
+
     header = "Node | MILLISEC |  accX    accY    accZ  |  gyroX   gyroY   gyroZ"
     print(header)
     print("-" * len(header))
@@ -378,7 +385,7 @@ def print_table(latest, active_nodes):
 
 
 def wait_for_initial_frames(
-    active_nodes, serials, latest, health, node_windows, last_predict_at
+    active_nodes, serials, latest, health, node_windows, last_predict_at, prediction_state
 ):
     print("\nWaiting for initial data from all selected nodes...")
     for node_id in active_nodes:
@@ -393,7 +400,7 @@ def wait_for_initial_frames(
             if parsed is not None and parsed["node_id"] == node_id:
                 report_esp_status(node_id, True)
                 latest[node_id] = parsed
-                maybe_predict(active_nodes, parsed, node_windows, last_predict_at)
+                maybe_predict(active_nodes, parsed, node_windows, last_predict_at, prediction_state)
                 print(f"  Node {node_id}: first sample received.")
                 break
             else:
@@ -413,6 +420,11 @@ def main():
     latest = {}
     node_windows = {nid: deque(maxlen=WINDOW_SIZE) for nid in active_nodes}
     last_predict_at = {"combined": 0.0}
+    prediction_state = {
+        "label": "WAITING",
+        "confidence": "-",
+        "used_nodes": [],
+    }
 
     for nid in active_nodes:
         if serials.get(nid) is not None:
@@ -425,6 +437,7 @@ def main():
         health,
         node_windows,
         last_predict_at,
+        prediction_state,
     )
 
     try:
@@ -451,14 +464,14 @@ def main():
                 if parsed is not None and parsed["node_id"] == node_id:
                     report_esp_status(node_id, True)
                     latest[node_id] = parsed
-                    maybe_predict(active_nodes, parsed, node_windows, last_predict_at)
+                    maybe_predict(active_nodes, parsed, node_windows, last_predict_at, prediction_state)
 
             now = time.perf_counter()
             frame_end = frame_start + FRAME_PERIOD
             if now < frame_end:
                 time.sleep(frame_end - now)
 
-            print_table(latest, active_nodes)
+            print_table(latest, active_nodes, prediction_state)
 
     except KeyboardInterrupt:
         print("\nStopping TDMA hub...")

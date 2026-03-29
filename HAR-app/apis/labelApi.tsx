@@ -14,13 +14,18 @@ export const labelApi = () => {
     return response.json();
   };
 
-  const sendLabel = async (label: string) => {
+  const sendLabel = async (label: string, nodeId?: number | null) => {
+    const payload: { label: string; node_id?: number } = { label };
+    if (typeof nodeId === "number") {
+      payload.node_id = nodeId;
+    }
+
     const response = await fetch(`${API_URL}/label`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ label }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {

@@ -52,6 +52,17 @@ def init_database():
     ''')
 
     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS relabels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id INTEGER,
+            original_label TEXT,
+            new_label TEXT NOT NULL,
+            sensor_data TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS label_images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -61,8 +72,35 @@ def init_database():
 
     db_connection.commit()
 
+    ensure_labels_sensor_columns()
+    ensure_relabels_data_columns()
+
     seed_mock_unity_images()
     seed_labels_table()
+
+
+def ensure_labels_sensor_columns():
+    cursor = get_database().cursor()
+    cursor.execute("PRAGMA table_info(labels)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    for idx in range(1, 8):
+        column_name = f"esp{idx}"
+        if column_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE labels ADD COLUMN {column_name} TEXT")
+
+    get_database().commit()
+
+
+def ensure_relabels_data_columns():
+    cursor = get_database().cursor()
+    cursor.execute("PRAGMA table_info(relabels)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    if "esp_data" not in existing_columns:
+        cursor.execute("ALTER TABLE relabels ADD COLUMN esp_data TEXT")
+
+    get_database().commit()
 
 
 def seed_mock_unity_images():

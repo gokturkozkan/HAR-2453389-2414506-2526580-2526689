@@ -9,22 +9,45 @@ export default function ConnectScreen() {
   const [esps, setEsps] = useState<EspStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectingId, setConnectingId] = useState<number | null>(null);
-  const [espStatus, setEspStatus] = useState<EspStatus[]>([]);
   const { getEspStatus, getEsp } = espStatusApi();
-  const { connection, setConnection } = useContext(ConnectionContext);
+  const { setConnection } = useContext(ConnectionContext);
 
   const fetchEsps = async (initial: boolean = false) => {
     if (initial) setLoading(true);
     try {
       try {
         const data = await getEsp();
-        setEsps((prev) => {
-          const prevMap = new Map(prev.map((e) => [e.id, e.isConnected]));
-          return data.map((d: EspId) => ({
+
+        if (!data || data.length === 0) {
+          setEsps([]);
+          setConnection(false);
+          return;
+        }
+
+        const statusResults = await Promise.allSettled(
+          data.map((d: EspId) => getEspStatus(d.id))
+        );
+
+        const nextEsps: EspStatus[] = data.map((d: EspId, index: number) => {
+          const result = statusResults[index];
+          if (result.status === "fulfilled") {
+            return {
+              id: d.id,
+              isConnected: result.value.isConnected,
+            };
+          }
+
+          return {
             id: d.id,
-            isConnected: prevMap.get(d.id) ?? null,
-          }));
+            isConnected: null,
+          };
         });
+
+        setEsps(nextEsps);
+
+        const allConnected =
+          nextEsps.length > 0 && nextEsps.every((esp) => esp.isConnected === true);
+        setConnection(allConnected);
       } catch (e: any) {
         console.error("ESP fetch error:", e.message);
       }
@@ -48,7 +71,6 @@ export default function ConnectScreen() {
         const allConnected = updated.every((esp) => esp.isConnected === true);
         console.log("After update - all connected:", allConnected);
         setConnection(allConnected);
-        console.log(connection)
         return updated;
       });
     } finally {
@@ -59,47 +81,6 @@ export default function ConnectScreen() {
   useEffect(() => {
     fetchEsps(true);
   }, []);
-
-  // Periodically check connection status
-  useEffect(() => {
-    if (esps.length === 0) return;
-
-    const checkConnections = async () => {
-      try {
-        // Only check if we think we're connected
-        const connectedEsps = esps.filter(esp => esp.isConnected === true);
-        if (connectedEsps.length === 0) return;
-
-        // Check each connected ESP
-        const statusPromises = connectedEsps.map(esp => 
-          getEspStatus(esp.id).catch(() => ({ isConnected: false }))
-        );
-        
-        const statuses = await Promise.all(statusPromises);
-        
-        setEsps((prev) => {
-          const updated = prev.map((esp, index) => {
-            const connectedIndex = connectedEsps.findIndex(e => e.id === esp.id);
-            if (connectedIndex !== -1) {
-              return { ...esp, isConnected: statuses[connectedIndex].isConnected };
-            }
-            return esp;
-          });
-          
-          const allConnected = updated.every((esp) => esp.isConnected === true);
-          setConnection(allConnected);
-          return updated;
-        });
-      } catch (e) {
-        console.error("Failed to check connection status", e);
-      }
-    };
-
-    // Check every 5 seconds
-    const interval = setInterval(checkConnections, 5000);
-
-    return () => clearInterval(interval);
-  }, [esps.length, connection]);
 
   if(loading) {
     return (

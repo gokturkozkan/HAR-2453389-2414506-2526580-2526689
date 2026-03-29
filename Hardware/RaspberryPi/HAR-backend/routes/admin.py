@@ -1,6 +1,8 @@
 from flask import Blueprint, request, jsonify
 from database import db_all
 import os
+import json
+import html
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -18,6 +20,7 @@ def admin_guard():
     
     return False
 
+
 @admin_bp.route('/admin/users.json', methods=['GET'])
 def get_users_json():
     if not admin_guard():
@@ -26,8 +29,9 @@ def get_users_json():
     try:
         users = db_all('SELECT id, username, created_at FROM users ORDER BY created_at DESC LIMIT 100')
         return jsonify(users)
-    except Exception as err:
+    except Exception:
         return jsonify({'message': 'Failed to load users'}), 500
+
 
 @admin_bp.route('/admin/esp-devices.json', methods=['GET'])
 def get_esp_devices_json():
@@ -37,8 +41,9 @@ def get_esp_devices_json():
     try:
         esps = db_all('SELECT id, is_connected as isConnected FROM esp_devices ORDER BY id ASC LIMIT 200')
         return jsonify(esps)
-    except Exception as err:
+    except Exception:
         return jsonify({'message': 'Failed to load esp devices'}), 500
+
 
 @admin_bp.route('/admin', methods=['GET'])
 def admin_page():
@@ -48,15 +53,49 @@ def admin_page():
     try:
         users = db_all('SELECT id, username, created_at FROM users ORDER BY created_at DESC LIMIT 100')
         esps = db_all('SELECT id, is_connected as isConnected FROM esp_devices ORDER BY id ASC LIMIT 200')
-        labels = db_all('SELECT id, name FROM labels')
+        labels = db_all('SELECT id, name FROM labels ORDER BY id ASC')
+        relabels = db_all(
+            'SELECT id, node_id, original_label, new_label, sensor_data, esp_data, created_at '
+            'FROM relabels ORDER BY created_at DESC, id DESC LIMIT 100'
+        )
         
-        # Get current label
         current_label_query = db_all('SELECT id, name FROM labels ORDER BY id ASC LIMIT 1')
         current_label = current_label_query[0] if current_label_query else None
-        
+
+        def safe_text(value):
+            if value is None:
+                return ''
+            return html.escape(str(value))
+
+        def parse_sensor_data(raw_json):
+            if not raw_json:
+                return []
+
+            try:
+                parsed = json.loads(raw_json)
+                if not isinstance(parsed, list):
+                    return []
+
+                cleaned = []
+                for row in parsed:
+                    if not isinstance(row, dict):
+                        continue
+
+                    cleaned.append({
+                        'ax': row.get('ax', ''),
+                        'ay': row.get('ay', ''),
+                        'az': row.get('az', ''),
+                        'gx': row.get('gx', ''),
+                        'gy': row.get('gy', ''),
+                        'gz': row.get('gz', ''),
+                    })
+                return cleaned
+            except Exception:
+                return []
+
         # Generate user rows
         user_rows = ''.join([
-            f'<tr><td>{u["id"]}</td><td>{u["username"]}</td><td>{u.get("created_at", "")}</td></tr>'
+            f'<tr><td>{safe_text(u["id"])}</td><td>{safe_text(u["username"])}</td><td>{safe_text(u.get("created_at", ""))}</td></tr>'
             for u in users
         ])
         
@@ -64,15 +103,99 @@ def admin_page():
         esp_rows = ''
         for e in esps:
             is_connected = e.get('isConnected')
-            if is_connected == 1 or is_connected == True:
+            if is_connected == 1 or is_connected is True:
                 status = '<span class="pill ok">connected</span>'
-            elif is_connected == 0 or is_connected == False:
+            elif is_connected == 0 or is_connected is False:
                 status = '<span class="pill bad">disconnected</span>'
             else:
                 status = '<span class="pill unk">unknown</span>'
-            esp_rows += f'<tr><td>{e["id"]}</td><td>{status}</td></tr>'
-        
-        html = f'''<!doctype html>
+            esp_rows += f'<tr><td>{safe_text(e["id"])}</td><td>{status}</td></tr>'
+
+        # Generate label rows
+        label_rows = ''
+        for l in labels:
+            label_rows += f'<tr><td>{safe_text(l["id"])}</td><td>{safe_text(l["name"])}</td></tr>'
+
+        # Generate relabel rows
+        relabel_rows = ''
+        modal_payloads = []
+
+        for r in relabels:
+            parsed_sensor_data = parse_sensor_data(r.get('sensor_data'))
+            modal_id = f'sensor-modal-{r["id"]}'
+
+            modal_payloads.append({
+                'modal_id': modal_id,
+                'rows': parsed_sensor_data
+            })
+
+            sensor_button = (
+                f'<button class="secondary-btn" onclick="openSensorModal(\'{modal_id}\')">'
+                f'View ({len(parsed_sensor_data)})'
+                f'</button>'
+            )
+
+            relabel_rows += (
+                f'<tr>'
+                f'<td>{safe_text(r["id"])}</td>'
+                f'<td>{safe_text(r.get("created_at", ""))}</td>'
+                f'<td>{safe_text(r.get("node_id", ""))}</td>'
+                f'<td>{safe_text(r.get("original_label", ""))}</td>'
+                f'<td>{safe_text(r.get("new_label", ""))}</td>'
+                f'<td>{sensor_button}</td>'
+                f'</tr>'
+            )
+
+        modal_html = ''
+        for item in modal_payloads:
+            if item['rows']:
+                body_rows = ''.join([
+                    (
+                        f'<tr>'
+                        f'<td>{safe_text(row["ax"])}</td>'
+                        f'<td>{safe_text(row["ay"])}</td>'
+                        f'<td>{safe_text(row["az"])}</td>'
+                        f'<td class="divider-cell">|</td>'
+                        f'<td>{safe_text(row["gx"])}</td>'
+                        f'<td>{safe_text(row["gy"])}</td>'
+                        f'<td>{safe_text(row["gz"])}</td>'
+                        f'</tr>'
+                    )
+                    for row in item['rows']
+                ])
+            else:
+                body_rows = '<tr><td colspan="7">No sensor data available</td></tr>'
+
+            modal_html += f'''
+            <div id="{item["modal_id"]}" class="modal-backdrop" onclick="closeIfBackdrop(event, '{item["modal_id"]}')">
+              <div class="modal-card">
+                <div class="modal-header">
+                  <h3>Sensor Data</h3>
+                  <button class="close-btn" onclick="closeSensorModal('{item["modal_id"]}')">&times;</button>
+                </div>
+                <div class="modal-content">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>accX</th>
+                        <th>accY</th>
+                        <th>accZ</th>
+                        <th></th>
+                        <th>gyroX</th>
+                        <th>gyroY</th>
+                        <th>gyroZ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {body_rows}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            '''
+
+        html_page = f'''<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -82,6 +205,7 @@ def admin_page():
       body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }}
       h1 {{ margin: 0 0 8px 0; }}
       h2 {{ margin-top: 24px; }}
+      h3 {{ margin: 0; }}
       table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
       th, td {{ border: 1px solid #ddd; padding: 8px; font-size: 14px; }}
       th {{ background: #f7f7f7; text-align: left; }}
@@ -99,6 +223,59 @@ def admin_page():
       input[type="text"] {{ padding: 8px; border: 1px solid #ddd; border-radius: 4px; flex: 1; }}
       button {{ padding: 8px 16px; background: #0f7a3b; color: white; border: none; border-radius: 4px; cursor: pointer; }}
       button:hover {{ background: #0d6a31; }}
+      .secondary-btn {{ background: #2563eb; }}
+      .secondary-btn:hover {{ background: #1d4ed8; }}
+      .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+
+      .modal-backdrop {{
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }}
+
+      .modal-backdrop.open {{
+        display: flex;
+      }}
+
+      .modal-card {{
+        background: white;
+        width: min(900px, 95vw);
+        max-height: 85vh;
+        overflow: auto;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        padding: 16px;
+      }}
+
+      .modal-header {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }}
+
+      .close-btn {{
+        background: transparent;
+        color: #111827;
+        font-size: 24px;
+        padding: 0 8px;
+      }}
+
+      .close-btn:hover {{
+        background: #f3f4f6;
+      }}
+
+      .divider-cell {{
+        text-align: center;
+        font-weight: bold;
+        background: #fafafa;
+        width: 24px;
+      }}
     </style>
   </head>
   <body>
@@ -111,12 +288,13 @@ def admin_page():
     <div class="grid">
       <section class="label-section">
         <h2>Current Label</h2>
-        <p><strong>Label:</strong> {current_label['name'] if current_label else 'N/A'}</p>
+        <p><strong>Label:</strong> {safe_text(current_label['name'] if current_label else 'N/A')}</p>
         <div class="label-form">
-          <input type="text" id="labelInput" placeholder="Enter new label" value="{current_label['name'] if current_label else ''}" />
+          <input type="text" id="labelInput" placeholder="Enter new label" value="{safe_text(current_label['name'] if current_label else '')}" />
           <button onclick="updateLabel()">Update Label</button>
         </div>
       </section>
+
       <section>
         <h2>Users ({len(users)})</h2>
         <table>
@@ -128,6 +306,7 @@ def admin_page():
           </tbody>
         </table>
       </section>
+
       <section>
         <h2>ESP Devices ({len(esps)})</h2>
         <table>
@@ -139,6 +318,7 @@ def admin_page():
           </tbody>
         </table>
       </section>
+
       <section>
         <h2>Labels ({len(labels)})</h2>
         <table>
@@ -146,28 +326,50 @@ def admin_page():
             <tr><th>ID</th><th>Name</th></tr>
           </thead>
           <tbody>
-            {''.join([f'<tr><td>{l["id"]}</td><td>{l["name"]}</td></tr>' for l in labels])}
+            {label_rows}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="label-section">
+        <h2>Relabel History ({len(relabels)})</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Created</th>
+              <th>Node</th>
+              <th>Original</th>
+              <th>New</th>
+              <th>Sensor Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            {relabel_rows}
           </tbody>
         </table>
       </section>
     </div>
+
+    {modal_html}
+
     <script>
       async function updateLabel() {{
         const labelInput = document.getElementById('labelInput');
         const label = labelInput.value.trim();
-        
+
         if (!label) {{
           alert('Please enter a label');
           return;
         }}
-        
+
         try {{
           const response = await fetch('/label', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ label }})
           }});
-          
+
           if (response.ok) {{
             alert('Label updated successfully');
             location.reload();
@@ -178,10 +380,30 @@ def admin_page():
           alert('Error updating label: ' + error);
         }}
       }}
+
+      function openSensorModal(id) {{
+        const modal = document.getElementById(id);
+        if (modal) {{
+          modal.classList.add('open');
+        }}
+      }}
+
+      function closeSensorModal(id) {{
+        const modal = document.getElementById(id);
+        if (modal) {{
+          modal.classList.remove('open');
+        }}
+      }}
+
+      function closeIfBackdrop(event, id) {{
+        if (event.target.id === id) {{
+          closeSensorModal(id);
+        }}
+      }}
     </script>
   </body>
 </html>'''
         
-        return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
-    except Exception as err:
+        return html_page, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except Exception:
         return jsonify({'message': 'Failed to load admin page'}), 500

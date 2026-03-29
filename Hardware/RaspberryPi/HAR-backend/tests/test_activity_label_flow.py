@@ -104,7 +104,7 @@ class ActivityLabelFlowTests(unittest.TestCase):
         self.assertEqual(post_body["label"], "jumping")
 
         relabel_row = db_get(
-            "SELECT node_id, original_label, new_label, sensor_data FROM relabels ORDER BY id DESC LIMIT 1"
+            "SELECT node_id, original_label, new_label, sensor_data, esp_data FROM relabels ORDER BY id DESC LIMIT 1"
         )
         self.assertEqual(relabel_row["node_id"], 7)
         self.assertEqual(relabel_row["original_label"], "standing")
@@ -112,6 +112,10 @@ class ActivityLabelFlowTests(unittest.TestCase):
         parsed_sensor_data = json.loads(relabel_row["sensor_data"])
         self.assertEqual(len(parsed_sensor_data), 32)
         self.assertIn("ax", parsed_sensor_data[0])
+        parsed_esp_data = json.loads(relabel_row["esp_data"])
+        self.assertTrue(isinstance(parsed_esp_data, list) and len(parsed_esp_data) > 0)
+        self.assertEqual(parsed_esp_data[0]["node_id"], 7)
+        self.assertEqual(len(parsed_esp_data[0]["readings"]), 32)
 
         labels_row = db_get(
             "SELECT name, esp1, esp2, esp3, esp4, esp5, esp6, esp7 FROM labels WHERE id = 1"

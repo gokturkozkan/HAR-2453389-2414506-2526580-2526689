@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, Image, ActivityIndicator, Modal, ScrollView } f
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Pressable } from "react-native";
 import { router } from "expo-router";
-import { useContext, useState, useEffect, useCallback } from "react";
+import { useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { useFocusEffect } from '@react-navigation/native';
 import { labelApi } from "@/apis/labelApi";
 import { ConnectionContext } from "../contexts/ConnectionContext";
@@ -14,17 +14,18 @@ const handleConnection = () => {
 type labelType = {
   label: string;
   image: string;
+  node_id?: number | null;
 }
 
-const relabelOptions = ["sitting", "standing", "walking", "jumping", "lying"];
+const relabelOptions = ["sitting", "standing", "walking", "jumping"];
 
 export default function HomeScreen() {
   const [ loading, setLoading ] = useState<boolean>(false);
   const [ message, setMessage ] = useState<[string, string] | null>(null);
   const [ label, setLabel ] = useState<labelType>();
   const [ isRelabelOpen, setIsRelabelOpen ] = useState<boolean>(false);
-  const { connection, setConnection } = useContext(ConnectionContext);
-  const { getLabel, sendLabel } = labelApi();
+  const { connection } = useContext(ConnectionContext);
+  const { getLabel, sendLabel } = useMemo(() => labelApi(), []);
 
   console.log("HomeScreen render - connection state:", connection);
 
@@ -50,7 +51,7 @@ export default function HomeScreen() {
     try {
       setLoading(true);
       setIsRelabelOpen(false);
-      await sendLabel(nextLabel);
+      await sendLabel(nextLabel, label?.node_id);
       await fetchLabel();
       setMessage(["success", `Relabeled as: ${nextLabel}`]);
     } catch (e: any) {
@@ -71,7 +72,6 @@ export default function HomeScreen() {
   // Also refetch when the Home tab gains focus
   useFocusEffect(
     useCallback(() => {
-      setConnection(true);
       console.log("Home tab focused - connection:", connection);
       if (connection) {
         fetchLabel();

@@ -205,7 +205,7 @@ def generate_mock_sample(node_id, step, activity_mode):
     return generate_walking_sample(node_id, step)
 
 
-def predict_combined_window(active_nodes, node_windows, activity_mode):
+def predict_combined_window(active_nodes, node_windows, activity_mode, prediction_state):
     windows_by_node = {}
     for node_id in active_nodes:
         window = node_windows[node_id]
@@ -216,7 +216,6 @@ def predict_combined_window(active_nodes, node_windows, activity_mode):
     payload = {
         "node_ids": active_nodes,
         "windows_by_node": windows_by_node,
-        "mock_activity_mode": activity_mode,
     }
 
     ok, result = backend_post("/predict", payload, timeout=2.5)
@@ -225,13 +224,24 @@ def predict_combined_window(active_nodes, node_windows, activity_mode):
         conf = result.get("confidence", "?")
         used_nodes = result.get("used_node_ids", active_nodes)
         suffix = " [mock backend]" if result.get("mock") else ""
-        print(f"[PREDICT] Mode={activity_mode} | Combined nodes {used_nodes}: {label} ({conf}){suffix}")
+
+        prediction_state["label"] = label
+        prediction_state["confidence"] = conf
+        prediction_state["used_nodes"] = used_nodes
+        prediction_state["is_mock_label"] = bool(result.get("mock"))
+
+        print(f"[PREDICT] Generated={activity_mode} | Predicted={label} ({conf}){suffix}")
     else:
-        print(f"[PREDICT] Mode={activity_mode} | Combined prediction failed: {result}")
+        prediction_state["label"] = "ERROR"
+        prediction_state["confidence"] = "-"
+        prediction_state["used_nodes"] = active_nodes
+        prediction_state["is_mock_label"] = False
+        print(f"[PREDICT] Generated={activity_mode} | Prediction failed: {result}")
+
     return ok
 
 
-def maybe_predict(active_nodes, parsed, node_windows, last_predict_at, activity_mode):
+def maybe_predict(active_nodes, parsed, node_windows, last_predict_at, activity_mode, prediction_state):
     node_id = parsed["node_id"]
     node_windows[node_id].append(
         {
@@ -252,7 +262,7 @@ def maybe_predict(active_nodes, parsed, node_windows, last_predict_at, activity_
     if (now - last) < PREDICT_MIN_INTERVAL_SECONDS:
         return
 
-    if predict_combined_window(active_nodes, node_windows, activity_mode):
+    if predict_combined_window(active_nodes, node_windows, activity_mode, prediction_state):
         last_predict_at["combined"] = now
 
 
@@ -267,13 +277,22 @@ def scientific_row(data):
     return t_ms, ax_mg, ay_mg, az_mg, gx_milli, gy_milli, gz_milli
 
 
-def print_table(latest, active_nodes, activity_mode, elapsed_seconds):
+def print_table(latest, active_nodes, activity_mode, elapsed_seconds, prediction_state):
     clear_console()
-    print("===== TDMA Sensor Dashboard (MOCK) =====")
-    print(f"Current mock activity: {activity_mode.upper()}")
-    print(f"Elapsed seconds      : {elapsed_seconds:.1f}")
-    print(f"Switch interval      : {ACTIVITY_SWITCH_SECONDS:.1f} sec")
+    print("===== TDMA Sensor Dashboard (MOCK INPUT / REAL PREDICTION) =====")
+    print(f"Generated mock activity : {activity_mode.upper()}")
+
+    predicted_label = prediction_state.get("label", "WAITING")
+    predicted_conf = prediction_state.get("confidence", "-")
+    is_mock_label = prediction_state.get("is_mock_label", False)
+
+    source = "MOCK" if is_mock_label else "BACKEND"
+    print(f"Predicted label        : {predicted_label} ({predicted_conf}) [{source}]")
+
+    print(f"Elapsed seconds        : {elapsed_seconds:.1f}")
+    print(f"Switch interval        : {ACTIVITY_SWITCH_SECONDS:.1f} sec")
     print()
+
     header = "Node | MILLISEC |  accX    accY    accZ  |  gyroX   gyroY   gyroZ"
     print(header)
     print("-" * len(header))
@@ -299,6 +318,12 @@ def main():
     latest = {}
     node_windows = {nid: deque(maxlen=WINDOW_SIZE) for nid in active_nodes}
     last_predict_at = {"combined": 0.0}
+    prediction_state = {
+      "label": "WAITING",
+      "confidence": "-",
+      "used_nodes": [],
+      "is_mock_label": False,
+    }
 
     for nid in active_nodes:
         report_esp_status(nid, True)
@@ -320,9 +345,9 @@ def main():
             for node_id in active_nodes:
                 parsed = generate_mock_sample(node_id, step, activity_mode)
                 latest[node_id] = parsed
-                maybe_predict(active_nodes, parsed, node_windows, last_predict_at, activity_mode)
+                maybe_predict(active_nodes, parsed, node_windows, last_predict_at, activity_mode, prediction_state)
 
-            print_table(latest, active_nodes, activity_mode, elapsed)
+            print_table(latest, active_nodes, activity_mode, elapsed, prediction_state)
             step += 1
 
             now = time.perf_counter()

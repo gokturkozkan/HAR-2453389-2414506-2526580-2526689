@@ -107,6 +107,9 @@ def predict_activity(sensor_data):
         for d in sensor_data
     ], dtype=np.float32)
 
+    print("INPUT SAMPLE (first row):", data_array[0], flush=True)
+    print("INPUT SAMPLE (last row):", data_array[-1], flush=True)
+
     data_array = SCALER.transform(data_array)
     data_array = np.nan_to_num(data_array, nan=0.0, posinf=0.0, neginf=0.0)
     data_array = np.clip(data_array, -10.0, 10.0)
@@ -115,9 +118,19 @@ def predict_activity(sensor_data):
 
     with torch.no_grad():
         output = MODEL(tensor)
-        probs = torch.softmax(output, dim=1)
-        activity_idx = torch.argmax(probs, dim=1).item()
-        confidence = probs[0, activity_idx].item()
+        probs = torch.softmax(output, dim=1).detach().cpu().numpy()[0]
+
+        prob_map = {
+            "standing": float(probs[0]),
+            "walking": float(probs[1]),
+            "sitting": float(probs[2]),
+            "lying": float(probs[3]),
+        }
+        print("\n=== CLASS PROBABILITIES ===", flush=True)
+        print(prob_map, flush=True)
+
+        activity_idx = int(np.argmax(probs))
+        confidence = float(probs[activity_idx])
 
     return LABELS[activity_idx], confidence
 
@@ -227,6 +240,15 @@ def get_latest_window(node_id=None):
     return copy.deepcopy(item) if item is not None else None
 
 
+def get_all_latest_node_windows():
+    windows = []
+    for key, value in LATEST_WINDOWS_BY_NODE.items():
+        if isinstance(key, int):
+            windows.append(copy.deepcopy(value))
+    windows.sort(key=lambda item: item.get('node_id', 0))
+    return windows
+
+
 @activity_bp.route('/predict', methods=['POST'])
 def predict_endpoint():
     try:
@@ -234,6 +256,7 @@ def predict_endpoint():
         node_id = data.get('node_id')
         readings = data.get('readings')
         windows_by_node = data.get('windows_by_node')
+        validated_windows = None
 
         used_node_ids = []
         if windows_by_node is not None:
@@ -250,6 +273,15 @@ def predict_endpoint():
         activity, confidence = predict_activity(readings)
 
         upsert_current_label(activity)
+
+        if validated_windows is not None:
+            remember_latest_combined_window(used_node_ids, readings, activity)
+            for used_node_id, node_readings in validated_windows.items():
+                remember_latest_window(used_node_id, node_readings, activity)
+                mark_esp_connected_if_known(used_node_id)
+        else:
+            remember_latest_window(node_id, readings, activity)
+            mark_esp_connected_if_known(node_id)
 
         response = {
             'node_id': node_id,
