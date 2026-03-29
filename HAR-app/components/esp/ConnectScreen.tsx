@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
 import { EspId, EspStatus } from "@/app/types/espTypes";
-import { espStatusApi } from "@/app/apis/espStatusApi";
+import { espStatusApi } from "@/apis/espStatusApi";
 import { ConnectionContext } from "../../app/contexts/ConnectionContext";
 
 export default function ConnectScreen() {

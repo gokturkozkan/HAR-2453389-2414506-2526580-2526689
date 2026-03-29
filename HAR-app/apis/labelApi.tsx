@@ -1,11 +1,9 @@
-
 import { API_URL } from "./api_url";
 
-
 export const labelApi = () => {
-  const getLabel = async() => {
+  const getLabel = async () => {
     const response = await fetch(`${API_URL}/label`, {
-      method: "GET"
+      method: "GET",
     });
 
     if (!response.ok) {
@@ -14,8 +12,9 @@ export const labelApi = () => {
     }
 
     return response.json();
-  }
-  const sendLabel = async(label: string) => {
+  };
+
+  const sendLabel = async (label: string) => {
     const response = await fetch(`${API_URL}/label`, {
       method: "POST",
       headers: {
@@ -23,12 +22,14 @@ export const labelApi = () => {
       },
       body: JSON.stringify({ label }),
     });
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
       throw new Error(errorData?.message || "Error sending label");
     }
+
     return response.json();
-  }
+  };
 
   return { getLabel, sendLabel };
-}
+};

@@ -4,13 +4,14 @@ from dotenv import load_dotenv
 import os
 import signal
 import sys
+
 from database import init_database, close_database
 from routes.auth import auth_bp
 from routes.esp import esp_bp
 from routes.admin import admin_bp
 from routes.user import user_bp
 from routes.label import label_bp, clear_label
-from routes.activity import activity_bp
+from routes.activity import activity_bp, load_model   # ✅ IMPORT ADDED
 
 load_dotenv()
 
@@ -54,6 +55,7 @@ def graceful_shutdown(signum, frame):
     close_database()
     sys.exit(0)
 
+
 if __name__ == '__main__':
     # Register signal handlers
     signal.signal(signal.SIGINT, graceful_shutdown)
@@ -62,8 +64,14 @@ if __name__ == '__main__':
     try:
         init_database()
         print('Database initialized')
+
         clear_label()
-        
+
+        # ✅ LOAD MODEL HERE (CRITICAL FIX)
+        print("Loading model...")
+        load_model()
+        print("Model loaded successfully")
+
         PORT = int(os.getenv('PORT', 3000))
         ENV = os.getenv('NODE_ENV', 'development')
         
@@ -72,6 +80,7 @@ if __name__ == '__main__':
         print(f'Environment: {ENV}')
         
         app.run(host='0.0.0.0', port=PORT, debug=(ENV == 'development'))
+
     except Exception as error:
         print(f'Failed to start server: {error}')
         sys.exit(1)

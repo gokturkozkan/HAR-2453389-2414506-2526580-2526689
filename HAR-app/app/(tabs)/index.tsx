@@ -2,10 +2,9 @@ import { View, Text, StyleSheet, Image, ActivityIndicator, Modal, ScrollView } f
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Pressable } from "react-native";
 import { router } from "expo-router";
-import { useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useContext, useState, useEffect, useCallback } from "react";
 import { useFocusEffect } from '@react-navigation/native';
-import { labelApi } from "../apis/labelApi";
-import { espStatusApi } from "../apis/espStatusApi";
+import { labelApi } from "@/apis/labelApi";
 import { ConnectionContext } from "../contexts/ConnectionContext";
 
 const handleConnection = () => {
@@ -17,12 +16,15 @@ type labelType = {
   image: string;
 }
 
+const relabelOptions = ["sitting", "standing", "walking", "jumping", "lying"];
+
 export default function HomeScreen() {
   const [ loading, setLoading ] = useState<boolean>(false);
   const [ message, setMessage ] = useState<[string, string] | null>(null);
   const [ label, setLabel ] = useState<labelType>();
+  const [ isRelabelOpen, setIsRelabelOpen ] = useState<boolean>(false);
   const { connection, setConnection } = useContext(ConnectionContext);
-  const { getLabel } = labelApi();
+  const { getLabel, sendLabel } = labelApi();
 
   console.log("HomeScreen render - connection state:", connection);
 
@@ -41,6 +43,23 @@ export default function HomeScreen() {
       setLoading(false);
     }
   }, [connection, getLabel]);
+
+  const handleRelabel = useCallback(async (nextLabel: string) => {
+    if (!connection) return;
+
+    try {
+      setLoading(true);
+      setIsRelabelOpen(false);
+      await sendLabel(nextLabel);
+      await fetchLabel();
+      setMessage(["success", `Relabeled as: ${nextLabel}`]);
+    } catch (e: any) {
+      setMessage(["error", e.message]);
+      console.error("Label update error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [connection, sendLabel, fetchLabel]);
 
   useEffect(() => {
     if(connection) {
@@ -79,9 +98,43 @@ export default function HomeScreen() {
                         style={styles.labelImage}
                       />
                     )}
+                    <Pressable
+                      style={styles.dropdownButton}
+                      onPress={() => setIsRelabelOpen(true)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.dropdownButtonText}>Relabel</Text>
+                    </Pressable>
                   </View>
                 }
                 {message && message[0] == "error" && <Text style={styles.error}>{message[1]}</Text>}
+
+                <Modal
+                  visible={isRelabelOpen}
+                  animationType="fade"
+                  transparent
+                  onRequestClose={() => setIsRelabelOpen(false)}
+                >
+                  <View style={styles.modalBackdrop}>
+                    <View style={styles.modalCard}>
+                      <Text style={styles.modalTitle}>Choose a new label</Text>
+                      <ScrollView>
+                        {relabelOptions.map((option) => (
+                          <Pressable
+                            key={option}
+                            style={styles.optionButton}
+                            onPress={() => handleRelabel(option)}
+                          >
+                            <Text style={styles.optionText}>{option}</Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                      <Pressable style={styles.cancelButton} onPress={() => setIsRelabelOpen(false)}>
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </Modal>
               </>
             ) : (
               <>
@@ -183,6 +236,62 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     resizeMode: "contain",
+  },
+  dropdownButton: {
+    marginTop: 12,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    backgroundColor: "#0f766e",
+  },
+  dropdownButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxHeight: 380,
+    backgroundColor: "white",
+    borderRadius: 14,
+    padding: 16,
+    gap: 10,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 6,
+  },
+  optionButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: "#f1f5f9",
+    marginBottom: 8,
+  },
+  optionText: {
+    fontSize: 15,
+    color: "#0f172a",
+    textTransform: "capitalize",
+  },
+  cancelButton: {
+    marginTop: 2,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    backgroundColor: "#e2e8f0",
+  },
+  cancelButtonText: {
+    color: "#1e293b",
+    fontWeight: "600",
   },
   button: {
     marginTop: 16,

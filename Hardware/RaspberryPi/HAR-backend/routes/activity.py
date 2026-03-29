@@ -1,203 +1,272 @@
 import os
-from typing import Any
-
+import copy
 import torch
-from flask import Blueprint, jsonify, request
+import numpy as np
+from flask import Blueprint, request, jsonify
+from sklearn.preprocessing import StandardScaler
 
-from database import db_run
+from database import db_run, db_get
 
-activity_bp = Blueprint("activity", __name__)
-
-WINDOW_SIZE = int(os.getenv("HAR_WINDOW_SIZE", "32"))
-FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz")
-CLASS_LABELS = [
-    label.strip()
-    for label in os.getenv("HAR_CLASS_LABELS", "standing,walking,sitting,lying").split(",")
-    if label.strip()
-]
-MODEL_PATH = os.getenv(
-    "HAR_MODEL_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "model", "HAR.pt"),
-)
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+activity_bp = Blueprint('activity', __name__)
 
 MODEL = None
-MODEL_LOAD_ERROR = None
-LATEST_FUSED_WINDOW = None
-LAST_PREDICTED_LABEL = None
-LAST_NODE_ORDER = None
+SCALER = None
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+WINDOW_SIZE = 32
+COMBINED_KEY = '_combined'
+
+LABELS = ['standing', 'walking', 'sitting', 'lying']
+REQUIRED_FEATURES = ('ax', 'ay', 'az', 'gx', 'gy', 'gz')
+LATEST_WINDOWS_BY_NODE = {}
+LAST_NODE_ID = None
 
 
-def _safe_int_key(value: str) -> tuple[int, str]:
-    try:
-        return (0, int(value))
-    except (TypeError, ValueError):
-        return (1, str(value))
+class HARNet(torch.nn.Module):
+    def __init__(self, num_features, num_classes):
+        super().__init__()
+
+        self.conv_block = torch.nn.Sequential(
+            torch.nn.Conv1d(num_features, 128, kernel_size=5, padding=2),
+            torch.nn.BatchNorm1d(128),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.2),
+
+            torch.nn.Conv1d(128, 128, kernel_size=5, padding=2),
+            torch.nn.BatchNorm1d(128),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.2),
+        )
+
+        self.lstm = torch.nn.LSTM(
+            input_size=128,
+            hidden_size=128,
+            num_layers=2,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0.2,
+        )
+
+        self.classifier = torch.nn.Sequential(
+            torch.nn.Linear(256, 128),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.3),
+            torch.nn.Linear(128, num_classes),
+        )
+
+    def forward(self, x):
+        x = x.transpose(1, 2)   # (B, F, T)
+        x = self.conv_block(x)  # (B, 128, T)
+        x = x.transpose(1, 2)   # (B, T, 128)
+        x, _ = self.lstm(x)     # (B, T, 256)
+        x = x[:, -1, :]         # last timestep
+        x = self.classifier(x)
+        return x
 
 
-def _load_model() -> None:
-    global MODEL, MODEL_LOAD_ERROR
+def load_model():
+    global MODEL, SCALER
 
-    if MODEL is not None or MODEL_LOAD_ERROR is not None:
+    base_dir = os.path.dirname(__file__)
+    model_path = os.path.abspath(os.path.join(base_dir, '..', '..', 'model', 'activity_recognition_model.pt'))
+    scaler_path = os.path.abspath(os.path.join(base_dir, '..', '..', 'model', 'scaler.npz'))
+
+    print("base_dir:", base_dir)
+    print("model_path exists:", os.path.exists(model_path), model_path)
+    print("scaler_path exists:", os.path.exists(scaler_path), scaler_path)
+
+    checkpoint = torch.load(model_path, map_location=DEVICE)
+    print("checkpoint type:", type(checkpoint))
+    if isinstance(checkpoint, dict):
+        print("checkpoint keys:", checkpoint.keys())
+
+    MODEL = HARNet(num_features=6, num_classes=4).to(DEVICE)
+    MODEL.load_state_dict(checkpoint['model_state'])
+    MODEL.eval()
+
+    scaler_np = np.load(scaler_path)
+    print("scaler keys:", scaler_np.files)
+
+    SCALER = StandardScaler()
+    SCALER.mean_ = scaler_np['mean']
+    SCALER.scale_ = scaler_np['scale']
+    SCALER.var_ = SCALER.scale_ ** 2
+    SCALER.n_features_in_ = len(SCALER.mean_)
+
+    print(f"✓ Model loaded on {DEVICE}")
+
+
+def predict_activity(sensor_data):
+    if MODEL is None or SCALER is None:
+        raise RuntimeError("Model or scaler not loaded")
+
+    if len(sensor_data) != WINDOW_SIZE:
+        raise ValueError(f"Exactly {WINDOW_SIZE} readings are required")
+
+    data_array = np.array([
+        [d['ax'], d['ay'], d['az'], d['gx'], d['gy'], d['gz']]
+        for d in sensor_data
+    ], dtype=np.float32)
+
+    data_array = SCALER.transform(data_array)
+    data_array = np.nan_to_num(data_array, nan=0.0, posinf=0.0, neginf=0.0)
+    data_array = np.clip(data_array, -10.0, 10.0)
+
+    tensor = torch.tensor(data_array, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+
+    with torch.no_grad():
+        output = MODEL(tensor)
+        probs = torch.softmax(output, dim=1)
+        activity_idx = torch.argmax(probs, dim=1).item()
+        confidence = probs[0, activity_idx].item()
+
+    return LABELS[activity_idx], confidence
+
+
+def validate_sensor_readings(sensor_data):
+    if not isinstance(sensor_data, list):
+        raise ValueError('Sensor readings must be a list')
+
+    if len(sensor_data) != WINDOW_SIZE:
+        raise ValueError(f'Exactly {WINDOW_SIZE} readings are required')
+
+    for i, reading in enumerate(sensor_data):
+        if not isinstance(reading, dict):
+            raise ValueError(f'Reading at index {i} must be an object')
+
+        for key in REQUIRED_FEATURES:
+            if key not in reading:
+                raise ValueError(f"Reading at index {i} is missing '{key}'")
+            try:
+                float(reading[key])
+            except (TypeError, ValueError):
+                raise ValueError(f"Reading at index {i} has non-numeric '{key}'")
+
+
+def validate_windows_by_node(windows_by_node):
+    if not isinstance(windows_by_node, dict) or not windows_by_node:
+        raise ValueError('windows_by_node must be a non-empty object')
+
+    normalized = {}
+    for raw_node_id, readings in windows_by_node.items():
+        try:
+            node_id = int(raw_node_id)
+        except (TypeError, ValueError):
+            raise ValueError(f'Invalid node id in windows_by_node: {raw_node_id}')
+        validate_sensor_readings(readings)
+        normalized[node_id] = readings
+
+    return normalized
+
+
+def combine_windows_by_node(windows_by_node):
+    node_ids = sorted(windows_by_node.keys())
+    if not node_ids:
+        raise ValueError('At least one node window is required')
+
+    combined = []
+    for idx in range(WINDOW_SIZE):
+        merged = {}
+        for feature in REQUIRED_FEATURES:
+            values = [float(windows_by_node[node_id][idx][feature]) for node_id in node_ids]
+            merged[feature] = sum(values) / len(values)
+        combined.append(merged)
+
+    return combined, node_ids
+
+
+def upsert_current_label(label):
+    row = db_get('SELECT id FROM labels WHERE id = 1')
+    if row:
+        db_run('UPDATE labels SET name = ? WHERE id = 1', [label])
+    else:
+        db_run('INSERT INTO labels (id, name) VALUES (1, ?)', [label])
+
+
+def mark_esp_connected_if_known(node_id):
+    if node_id is None:
         return
 
+    row = db_get('SELECT id FROM esp_devices WHERE id = ?', [node_id])
+    if row:
+        db_run('UPDATE esp_devices SET is_connected = 1 WHERE id = ?', [node_id])
+    else:
+        db_run('INSERT INTO esp_devices (id, is_connected) VALUES (?, 1)', [node_id])
+
+
+def remember_latest_window(node_id, readings, predicted_label):
+    global LAST_NODE_ID
+    key = node_id if node_id is not None else '_default'
+    LATEST_WINDOWS_BY_NODE[key] = {
+        'node_id': node_id,
+        'predicted_label': predicted_label,
+        'readings': copy.deepcopy(readings),
+    }
+    LAST_NODE_ID = key
+
+
+def remember_latest_combined_window(node_ids, readings, predicted_label):
+    global LAST_NODE_ID
+    LATEST_WINDOWS_BY_NODE[COMBINED_KEY] = {
+        'node_id': None,
+        'node_ids': list(node_ids),
+        'predicted_label': predicted_label,
+        'readings': copy.deepcopy(readings),
+    }
+    LAST_NODE_ID = COMBINED_KEY
+
+
+def get_latest_window(node_id=None):
+    key = node_id if node_id is not None else LAST_NODE_ID
+    if key is None:
+        return None
+    item = LATEST_WINDOWS_BY_NODE.get(key)
+    if item is None and node_id is None:
+        item = LATEST_WINDOWS_BY_NODE.get(COMBINED_KEY)
+    if item is None and node_id is None:
+        item = LATEST_WINDOWS_BY_NODE.get('_default')
+    return copy.deepcopy(item) if item is not None else None
+
+
+@activity_bp.route('/predict', methods=['POST'])
+def predict_endpoint():
     try:
-        try:
-            model = torch.jit.load(MODEL_PATH, map_location=DEVICE)
-        except Exception:
-            model = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
+        data = request.get_json() or {}
+        node_id = data.get('node_id')
+        readings = data.get('readings')
+        windows_by_node = data.get('windows_by_node')
 
-        if hasattr(model, "to"):
-            model = model.to(DEVICE)
-        if hasattr(model, "eval"):
-            model.eval()
+        used_node_ids = []
+        if windows_by_node is not None:
+            validated_windows = validate_windows_by_node(windows_by_node)
+            combined_readings, used_node_ids = combine_windows_by_node(validated_windows)
+            readings = combined_readings
+        else:
+            if not readings:
+                return jsonify({'error': 'No sensor readings provided'}), 400
+            validate_sensor_readings(readings)
+            if node_id is not None:
+                used_node_ids = [node_id]
 
-        MODEL = model
-    except Exception as exc:
-        MODEL_LOAD_ERROR = str(exc)
+        activity, confidence = predict_activity(readings)
 
+        upsert_current_label(activity)
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _validate_fused_readings(readings):
-    if not isinstance(readings, list):
-        return False, "'readings' must be a list"
-
-    if len(readings) != WINDOW_SIZE:
-        return False, f"Expected {WINDOW_SIZE} fused timesteps, got {len(readings)}"
-
-    if not readings:
-        return False, "No readings provided"
-
-    first = readings[0]
-    if not isinstance(first, dict) or not isinstance(first.get("nodes"), dict):
-        return False, "Each timestep must contain a 'nodes' dictionary"
-
-    node_order = sorted(first["nodes"].keys(), key=_safe_int_key)
-    if not node_order:
-        return False, "At least one node is required in each timestep"
-
-    for idx, timestep in enumerate(readings):
-        if not isinstance(timestep, dict):
-            return False, f"Timestep {idx} must be an object"
-
-        nodes = timestep.get("nodes")
-        if not isinstance(nodes, dict):
-            return False, f"Timestep {idx} is missing 'nodes'"
-
-        current_order = sorted(nodes.keys(), key=_safe_int_key)
-        if current_order != node_order:
-            return False, f"Timestep {idx} has inconsistent node ids"
-
-        for node_id in node_order:
-            sample = nodes.get(node_id)
-            if not isinstance(sample, dict):
-                return False, f"Timestep {idx}, node {node_id} must be an object"
-
-            for feature in FEATURE_KEYS:
-                if feature not in sample:
-                    return False, f"Timestep {idx}, node {node_id} missing '{feature}'"
-                if not _is_number(sample[feature]):
-                    return False, f"Timestep {idx}, node {node_id}, '{feature}' must be numeric"
-
-    return True, node_order
-
-
-def _flatten_fused_window(readings, node_order):
-    rows = []
-    for timestep in readings:
-        row = []
-        for node_id in node_order:
-            sample = timestep["nodes"][node_id]
-            for feature in FEATURE_KEYS:
-                row.append(float(sample[feature]))
-        rows.append(row)
-    return rows
-
-
-def _run_model(window_rows):
-    _load_model()
-
-    if MODEL_LOAD_ERROR is not None:
-        raise RuntimeError(f"Model could not be loaded: {MODEL_LOAD_ERROR}")
-    if MODEL is None:
-        raise RuntimeError("Model is not available")
-
-    tensor = torch.tensor(window_rows, dtype=torch.float32, device=DEVICE).unsqueeze(0)
-
-    last_error = None
-    candidate_inputs = [tensor, tensor.transpose(1, 2)]
-
-    for model_input in candidate_inputs:
-        try:
-            with torch.no_grad():
-                output = MODEL(model_input)
-
-            if isinstance(output, (tuple, list)):
-                output = output[0]
-
-            if not torch.is_tensor(output):
-                raise RuntimeError("Model output is not a tensor")
-
-            if output.ndim == 1:
-                pred_idx = int(torch.argmax(output).item())
-            elif output.ndim >= 2:
-                pred_idx = int(torch.argmax(output, dim=1).item())
-            else:
-                raise RuntimeError("Unexpected model output shape")
-
-            if 0 <= pred_idx < len(CLASS_LABELS):
-                return CLASS_LABELS[pred_idx]
-            return str(pred_idx)
-        except Exception as exc:
-            last_error = exc
-
-    raise RuntimeError(f"Inference failed for both input layouts: {last_error}")
-
-
-def _store_prediction(label, readings, node_order):
-    global LATEST_FUSED_WINDOW, LAST_PREDICTED_LABEL, LAST_NODE_ORDER
-    LATEST_FUSED_WINDOW = readings
-    LAST_PREDICTED_LABEL = label
-    LAST_NODE_ORDER = node_order
-    db_run("UPDATE labels SET name = ? WHERE id = 1", [label])
-
-
-@activity_bp.route("/predict", methods=["POST"])
-def predict_activity():
-    try:
-        payload = request.get_json(silent=True) or {}
-        readings = payload.get("readings")
-
-        is_valid, validation_result = _validate_fused_readings(readings)
-        if not is_valid:
-            return jsonify({"message": validation_result}), 400
-
-        node_order = validation_result
-        window_rows = _flatten_fused_window(readings, node_order)
-        predicted_label = _run_model(window_rows)
-        _store_prediction(predicted_label, readings, node_order)
-
-        return jsonify(
-            {
-                "predicted_label": predicted_label,
-                "node_order": node_order,
-                "window_size": len(readings),
-                "feature_count": len(window_rows[0]) if window_rows else 0,
-            }
-        )
-    except Exception as exc:
-        return jsonify({"message": str(exc)}), 500
-
-
-@activity_bp.route("/predict/latest", methods=["GET"])
-def get_latest_prediction():
-    return jsonify(
-        {
-            "predicted_label": LAST_PREDICTED_LABEL,
-            "node_order": LAST_NODE_ORDER,
-            "has_window": LATEST_FUSED_WINDOW is not None,
+        response = {
+            'node_id': node_id,
+            'used_node_ids': used_node_ids or ([node_id] if node_id is not None else []),
+            'activity': activity,
+            'confidence': round(confidence, 4)
         }
-    )
+        if windows_by_node is not None:
+            response['fusion'] = 'average_per_timestep'
+
+        return jsonify(response)
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    except Exception as e:
+      import traceback
+      print("PREDICT ERROR:", repr(e))
+      traceback.print_exc()
+      return jsonify({'error': str(e)}), 500

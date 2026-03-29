@@ -1,4 +1,3 @@
-
 import { API_URL } from "./api_url";
 
 export interface LoginCredentials {
@@ -15,10 +14,8 @@ export interface LoginResponse {
 }
 
 export const loginApi = () => {
-
   const login = async (credentials: LoginCredentials) => {
-
-      const response = await fetch(`${API_URL}/login`, {
+    const response = await fetch(`${API_URL}/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -26,13 +23,13 @@ export const loginApi = () => {
       body: JSON.stringify({ credentials }),
     });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.message || "Invalid username or password");
-      }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.message || "Invalid username or password");
+    }
 
-      return response.json();
-  }
+    return response.json();
+  };
 
   return { login };
-}
+};

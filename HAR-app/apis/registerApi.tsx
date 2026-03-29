@@ -1,4 +1,3 @@
-
 import { API_URL } from "./api_url";
 
 export interface RegisterCredentials {
@@ -15,10 +14,8 @@ export interface RegisterResponse {
 }
 
 export const registerApi = () => {
-
   const register = async (credentials: RegisterCredentials) => {
-
-      const response = await fetch(`${API_URL}/register`, {
+    const response = await fetch(`${API_URL}/register`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -26,13 +23,13 @@ export const registerApi = () => {
       body: JSON.stringify({ credentials }),
     });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.message || "Error creating account");
-      }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.message || "Error creating account");
+    }
 
-      return response.json();
-  }
+    return response.json();
+  };
 
   return { register };
-}
+};

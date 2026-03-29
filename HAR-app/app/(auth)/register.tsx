@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HelloWave } from "@/components/hello-wave";
 import { router } from "expo-router";
-import { registerApi } from "../apis/registerApi";
+import { registerApi } from "@/apis/registerApi";
 import { UserContext } from "../contexts/UserContext";
 
 export default function RegisterScreen() {

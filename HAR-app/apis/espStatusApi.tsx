@@ -1,9 +1,7 @@
-
 import { API_URL } from "./api_url";
-import { EspStatus, EspId } from "../types/espTypes";
+import { EspStatus, EspId } from "../app/types/espTypes";
 
 export const espStatusApi = () => {
-
   const getEspStatus = async (id: number): Promise<EspStatus> => {
     const response = await fetch(`${API_URL}/esp-status?id=${encodeURIComponent(id)}`, {
       method: "GET",
@@ -28,8 +26,7 @@ export const espStatusApi = () => {
     }
 
     return response.json();
-  }
-
+  };
 
   return { getEspStatus, getEsp };
-}
+};

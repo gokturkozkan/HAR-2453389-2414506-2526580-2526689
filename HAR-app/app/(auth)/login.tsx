@@ -11,8 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HelloWave } from "@/components/hello-wave";
 import { router } from "expo-router";
-import { API_URL } from "@/app/apis/api_url";
-import { loginApi } from "../apis/loginApi";
+import { loginApi } from "@/apis/loginApi";
 import { UserContext } from "../contexts/UserContext";
 import { ConnectionContext } from "../contexts/ConnectionContext";
 

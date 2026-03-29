@@ -51,6 +51,14 @@ def init_database():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS label_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            image BLOB
+        )
+                   ''')
+
     db_connection.commit()
 
     seed_mock_unity_images()
@@ -58,8 +66,8 @@ def init_database():
 
 
 def seed_mock_unity_images():
-    images_dir = Path(__file__).parent / 'mock-Unity'
-    files = ['jumping.png', 'sitting.png', 'standing.png', 'walking.png', 'lying.png']
+    images_dir = Path(__file__).parent / 'label_images'
+    files = ['standing.png', 'walking.png', 'sitting.png', 'lying.png']
 
     if not images_dir.exists():
         return
