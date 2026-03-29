@@ -53,7 +53,10 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         }
 
         const allConnected = statusResults.every(
-          (result) => result.status === 'fulfilled' && result.value.isConnected === true
+          (result) =>
+            result.status === 'fulfilled' &&
+            result.value.isConnected === true &&
+            result.value.state === 'streaming'
         );
         if (!cancelled) setConnectionState(allConnected);
       } catch (error) {
@@ -62,7 +65,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     };
 
     refreshConnection();
-    const interval = setInterval(refreshConnection, 30000);
+    const interval = setInterval(refreshConnection, 5000);
 
     return () => {
       cancelled = true;

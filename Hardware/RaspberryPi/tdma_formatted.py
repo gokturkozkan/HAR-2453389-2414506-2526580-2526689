@@ -1,38 +1,24 @@
-import serial
-import time
-import os
 import json
-from collections import deque
-from urllib import request, error
+import os
+import time
+from urllib import error, request
 
-NODE_PORTS = {
-    1: "/dev/rfcomm0",
-    2: "/dev/rfcomm1",
-    3: "/dev/rfcomm2",
-    4: "/dev/rfcomm3",
-    5: "/dev/rfcomm4",
-    6: "/dev/rfcomm5",
-    7: "/dev/rfcomm6",
-}
-
-BAUDRATE = 115200
-TIMEOUT = 0.05
-FRAME_PERIOD = 0.28
-
-MAX_WAIT_PER_NODE = 25.0
-
-EARLY_EIO_WINDOW = 2.0
-EARLY_EIO_RETRY_DELAY = 0.25
-
-BACKOFF_BASE = 0.5
-BACKOFF_MAX = 10.0
-RESET_ERRORS_AFTER_OK_SECONDS = 5.0
+from tdma_wifi_transport import (
+    PREDICT_MIN_INTERVAL_SECONDS,
+    SUPERFRAME_SECONDS,
+    SYNC_LEAD_MS,
+    NODE_SLOT_MS,
+    SoftTDMAHub,
+    ProtocolError,
+    broadcast_socket,
+    listening_socket,
+)
 
 BACKEND_URL = os.getenv("HAR_BACKEND_URL", "http://127.0.0.1:3000")
-WINDOW_SIZE = 32
-PREDICT_MIN_INTERVAL_SECONDS = 1.0
-
-ESP_CONNECTED_CACHE = {}
+SYNC_PORT = int(os.getenv("HAR_WIFI_SYNC_PORT", "39000"))
+DATA_PORT = int(os.getenv("HAR_WIFI_DATA_PORT", "39001"))
+SYNC_BROADCAST_HOST = os.getenv("HAR_WIFI_BROADCAST_HOST", "255.255.255.255")
+RENDER_INTERVAL_SECONDS = float(os.getenv("HAR_RENDER_INTERVAL_SECONDS", "0.5"))
 
 
 def clear_console():
@@ -40,49 +26,20 @@ def clear_console():
 
 
 def choose_nodes():
-    available = sorted(NODE_PORTS.keys())
-    print("Available nodes:", ", ".join(map(str, available)))
-    raw = input(
-        f"Enter comma-separated node IDs to use (e.g. {','.join(map(str, available))}). "
-        "Leave empty for all: "
-    ).strip()
-
-    if not raw:
-        return available
-
-    nodes = []
-    for part in raw.split(","):
-        p = part.strip()
-        if not p:
-            continue
-        try:
-            nid = int(p)
-            if nid in NODE_PORTS:
-                nodes.append(nid)
-            else:
-                print(f"Ignoring unknown node id {nid}")
-        except ValueError:
-            print(f"Ignoring invalid entry '{p}'")
-
-    nodes = sorted(set(nodes))
-    if not nodes:
-        print("No valid nodes selected, defaulting to all.")
-        nodes = available
-    return nodes
-
-
-def compute_backoff(errors):
-    e = max(0, int(errors))
-    delay = BACKOFF_BASE * (2 ** min(e, 6))
-    return min(delay, BACKOFF_MAX)
-
-
-def close_one(ser):
-    try:
-        if ser is not None and getattr(ser, "is_open", False):
-            ser.close()
-    except Exception:
-        pass
+    env_nodes = os.getenv("HAR_ACTIVE_NODES", "").strip()
+    available = list(range(1, 8))
+    if env_nodes:
+        nodes = []
+        for part in env_nodes.split(","):
+            try:
+                node_id = int(part.strip())
+            except ValueError:
+                continue
+            if node_id in available:
+                nodes.append(node_id)
+        nodes = sorted(set(nodes))
+        return nodes or available
+    return available
 
 
 def backend_post(path, payload, timeout=1.0):
@@ -103,383 +60,179 @@ def backend_post(path, payload, timeout=1.0):
                 return True, json.loads(raw)
             except Exception:
                 return True, {"raw": raw}
-    except error.HTTPError as e:
+    except error.HTTPError as exc:
         try:
-            raw = e.read().decode("utf-8", errors="ignore")
+            raw = exc.read().decode("utf-8", errors="ignore")
             try:
                 return False, json.loads(raw) if raw else {}
             except Exception:
                 return False, raw
         except Exception:
-            return False, f"HTTP Error {e.code}: {e.reason}"
-    except error.URLError as e:
-        return False, str(e)
-    except Exception as e:
-        return False, str(e)
+            return False, f"HTTP Error {exc.code}: {exc.reason}"
+    except error.URLError as exc:
+        return False, str(exc)
+    except Exception as exc:
+        return False, str(exc)
 
 
-def report_esp_status(node_id, is_connected):
-    prev = ESP_CONNECTED_CACHE.get(node_id)
-    if prev is is_connected:
-        return
+class BackendStatusReporter:
+    def __init__(self):
+        self.cache = {}
 
-    ok, result = backend_post(
-        f"/esp-status/{node_id}",
-        {"isConnected": bool(is_connected)},
-        timeout=1.0,
-    )
-    if ok:
-        ESP_CONNECTED_CACHE[node_id] = bool(is_connected)
-        state = "connected" if is_connected else "disconnected"
-        print(f"[BACKEND] Node {node_id} marked {state}")
-    else:
-        print(f"[BACKEND] Failed to update ESP status for node {node_id}: {result}")
+    def __call__(self, payload):
+        node_id = payload["id"]
+        previous = self.cache.get(node_id)
+        if previous == payload:
+            return
+        ok, result = backend_post(f"/esp-status/{node_id}", payload, timeout=1.0)
+        if ok:
+            self.cache[node_id] = dict(payload)
+            print(
+                f"[BACKEND] Node {node_id}: {payload['state']} "
+                f"(seq={payload['lastSeq']}, missed={payload['missedPackets']})"
+            )
+        else:
+            print(f"[BACKEND] Failed to update node {node_id}: {result}")
 
 
-def predict_combined_window(active_nodes, node_windows, prediction_state):
-    windows_by_node = {}
-    for node_id in active_nodes:
-        window = node_windows[node_id]
-        if len(window) < WINDOW_SIZE:
-            return False
-        windows_by_node[str(node_id)] = list(window)
-
+def predict_combined_window(active_nodes, node_windows):
     payload = {
-        "node_ids": active_nodes,
-        "windows_by_node": windows_by_node,
+        "node_ids": list(active_nodes),
+        "windows_by_node": {str(node_id): readings for node_id, readings in node_windows.items()},
     }
-
     ok, result = backend_post("/predict", payload, timeout=2.5)
     if ok:
-        label = result.get("activity", "?")
-        conf = result.get("confidence", "?")
-        used_nodes = result.get("used_node_ids", active_nodes)
-
-        prediction_state["label"] = label
-        prediction_state["confidence"] = conf
-        prediction_state["used_nodes"] = used_nodes
-
-        print(f"[PREDICT] Combined nodes {used_nodes}: {label} ({conf})")
+        print(
+            f"[PREDICT] Combined nodes {result.get('used_node_ids', active_nodes)}: "
+            f"{result.get('activity', '?')} ({result.get('confidence', '?')})"
+        )
     else:
-        prediction_state["label"] = "ERROR"
-        prediction_state["confidence"] = "-"
-        prediction_state["used_nodes"] = active_nodes
         print(f"[PREDICT] Combined prediction failed: {result}")
-
-    return ok
-
-
-def maybe_predict(active_nodes, parsed, node_windows, last_predict_at, prediction_state):
-    node_id = parsed["node_id"]
-    node_windows[node_id].append(
-        {
-            "ax": parsed["ax"],
-            "ay": parsed["ay"],
-            "az": parsed["az"],
-            "gx": parsed["gx"],
-            "gy": parsed["gy"],
-            "gz": parsed["gz"],
-        }
-    )
-
-    if any(len(node_windows[nid]) < WINDOW_SIZE for nid in active_nodes):
-        return
-
-    now = time.monotonic()
-    last = last_predict_at.get("combined", 0.0)
-    if (now - last) < PREDICT_MIN_INTERVAL_SECONDS:
-        return
-
-    if predict_combined_window(active_nodes, node_windows, prediction_state):
-        last_predict_at["combined"] = now
-
-
-def open_one(node_id):
-    port = NODE_PORTS[node_id]
-    try:
-        ser = serial.Serial(port, BAUDRATE, timeout=TIMEOUT, write_timeout=TIMEOUT)
-        time.sleep(0.12)
-        try:
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-        except Exception:
-            pass
-        return ser
-    except Exception:
-        return None
-
-
-def make_health(active_nodes):
-    now = time.monotonic()
-    return {
-        nid: {
-            "errors": 0,
-            "next_try": now,
-            "opened_at": 0.0,
-            "last_ok": 0.0,
-        }
-        for nid in active_nodes
-    }
-
-
-def mark_ok(node_id, health):
-    h = health[node_id]
-    now = time.monotonic()
-    if h["last_ok"] and (now - h["last_ok"]) > RESET_ERRORS_AFTER_OK_SECONDS:
-        h["errors"] = 0
-    h["last_ok"] = now
-    h["next_try"] = now
-
-
-def mark_error(node_id, serials, health, early=False):
-    h = health[node_id]
-    now = time.monotonic()
-    if early:
-        h["next_try"] = now + EARLY_EIO_RETRY_DELAY
-    else:
-        h["errors"] += 1
-        h["next_try"] = now + compute_backoff(h["errors"])
-    close_one(serials.get(node_id))
-    serials[node_id] = None
-    h["opened_at"] = 0.0
-    report_esp_status(node_id, False)
-
-
-def try_reconnect(node_id, serials, health):
-    h = health[node_id]
-    now = time.monotonic()
-    if now < h["next_try"]:
-        return False
-
-    ser = serials.get(node_id)
-    if ser is not None and getattr(ser, "is_open", False):
-        return True
-
-    ser = open_one(node_id)
-    if ser is None:
-        mark_error(node_id, serials, health, early=False)
-        return False
-
-    serials[node_id] = ser
-    h["opened_at"] = now
-    h["next_try"] = now
-    return True
-
-
-def open_ports(active_nodes):
-    serials = {nid: None for nid in active_nodes}
-    for node_id in active_nodes:
-        port = NODE_PORTS[node_id]
-        ser = open_one(node_id)
-        if ser is not None:
-            print(f"Opened node {node_id} on {port}")
-            serials[node_id] = ser
-        else:
-            print(f"[ERROR] Could not open {port} for node {node_id}")
-            serials[node_id] = None
-            report_esp_status(node_id, False)
-    return serials
-
-
-def request_sample(node_id, serials, health):
-    if not try_reconnect(node_id, serials, health):
-        return ""
-
-    ser = serials.get(node_id)
-    if ser is None or not getattr(ser, "is_open", False):
-        return ""
-
-    h = health[node_id]
-    try:
-        ser.write(b"R")
-        line = ser.readline().decode(errors="ignore").strip()
-        if line:
-            mark_ok(node_id, health)
-        return line
-    except (OSError, serial.SerialException) as e:
-        now = time.monotonic()
-        early = (now - h["opened_at"]) <= EARLY_EIO_WINDOW
-        errno = getattr(e, "errno", None)
-        if errno == 5 and early:
-            print(f"[ERROR] Node {node_id}: serial I/O error: {e}")
-            mark_error(node_id, serials, health, early=True)
-        else:
-            print(f"[ERROR] Node {node_id}: serial I/O error: {e}")
-            mark_error(node_id, serials, health, early=False)
-        return ""
-
-
-def parse_frame(line):
-    try:
-        parts = line.split(",")
-        if len(parts) < 8:
-            return None
-        node_id = int(parts[0])
-        t = int(parts[1])
-        ax, ay, az = map(float, parts[2:5])
-        gx, gy, gz = map(float, parts[5:8])
-        return {
-            "node_id": node_id,
-            "t": t,
-            "ax": ax,
-            "ay": ay,
-            "az": az,
-            "gx": gx,
-            "gy": gy,
-            "gz": gz,
-        }
-    except Exception:
-        return None
+    return ok, result
 
 
 def scientific_row(data):
     t_ms = int(data["t"])
-    ax_mg = int(round(data["ax"] / 9.8 * 1000))
-    ay_mg = int(round(data["ay"] / 9.8 * 1000))
-    az_mg = int(round(data["az"] / 9.8 * 1000))
+    ax_mg = int(round(data["ax"] / 9.80665 * 1000))
+    ay_mg = int(round(data["ay"] / 9.80665 * 1000))
+    az_mg = int(round(data["az"] / 9.80665 * 1000))
     gx_milli = int(round(data["gx"] * 1000))
     gy_milli = int(round(data["gy"] * 1000))
     gz_milli = int(round(data["gz"] * 1000))
-    return (
-        t_ms,
-        ax_mg,
-        ay_mg,
-        az_mg,
-        gx_milli,
-        gy_milli,
-        gz_milli,
-    )
+    return t_ms, ax_mg, ay_mg, az_mg, gx_milli, gy_milli, gz_milli
 
 
-def print_table(latest, active_nodes, prediction_state):
+def print_table(hub, active_nodes):
     clear_console()
-    print("===== TDMA Sensor Dashboard (REAL INPUT / REAL PREDICTION) =====")
-    predicted_label = prediction_state.get("label", "WAITING")
-    predicted_conf = prediction_state.get("confidence", "-")
-    print(f"Predicted label : {predicted_label} ({predicted_conf}) [BACKEND]")
+    print("===== TDMA Sensor Dashboard (WI-FI INPUT / REAL PREDICTION) =====")
+    print(
+        f"Soft TDMA: superframe={SUPERFRAME_SECONDS:.3f}s, sync lead={SYNC_LEAD_MS}ms, "
+        f"slot={NODE_SLOT_MS}ms, predict interval={PREDICT_MIN_INTERVAL_SECONDS:.1f}s"
+    )
+    print(
+        f"Predicted label : {hub.prediction_state.get('label', 'WAITING')} "
+        f"({hub.prediction_state.get('confidence', '-')}) [BACKEND]"
+    )
     print()
-
-    header = "Node | MILLISEC |  accX    accY    accZ  |  gyroX   gyroY   gyroZ"
+    header = (
+        "Node | State        | Seen(ms) | Seq    | Miss | MILLISEC | "
+        " accX    accY    accZ  |  gyroX   gyroY   gyroZ"
+    )
     print(header)
     print("-" * len(header))
 
-    for node_id in active_nodes:
+    latest = hub.latest_table_rows()
+    for snapshot in hub.status_snapshots():
+        node_id = snapshot["id"]
+        if node_id not in active_nodes:
+            continue
+        seen = "---" if snapshot["lastSeenMs"] is None else f"{snapshot['lastSeenMs']:7d}"
         data = latest.get(node_id)
         if data is None:
             print(
-                f"  {node_id:2d} |   ---   |   ---    ---    --- |   ---    ---    ---"
+                f"  {node_id:2d} | {snapshot['state']:<12} | {seen} | "
+                f"{snapshot['lastSeq']:6d} | {snapshot['missedPackets']:4d} |"
+                "   ---   |   ---    ---    --- |   ---    ---    ---"
             )
-        else:
-            (
-                t_ms,
-                ax_mg,
-                ay_mg,
-                az_mg,
-                gx_milli,
-                gy_milli,
-                gz_milli,
-            ) = scientific_row(data)
-            print(
-                f"  {node_id:2d} | {t_ms:7d} | {ax_mg:6d} {ay_mg:6d} {az_mg:6d} | {gx_milli:6d} {gy_milli:6d} {gz_milli:6d}"
-            )
+            continue
+        t_ms, ax_mg, ay_mg, az_mg, gx_milli, gy_milli, gz_milli = scientific_row(data)
+        print(
+            f"  {node_id:2d} | {snapshot['state']:<12} | {seen} | "
+            f"{snapshot['lastSeq']:6d} | {snapshot['missedPackets']:4d} | {t_ms:7d} | "
+            f"{ax_mg:6d} {ay_mg:6d} {az_mg:6d} | {gx_milli:6d} {gy_milli:6d} {gz_milli:6d}"
+        )
 
 
-def wait_for_initial_frames(
-    active_nodes, serials, latest, health, node_windows, last_predict_at, prediction_state
-):
-    print("\nWaiting for initial data from all selected nodes...")
+def mark_all_disconnected(reporter, active_nodes):
     for node_id in active_nodes:
-        start = time.monotonic()
-        while True:
-            if time.monotonic() - start > MAX_WAIT_PER_NODE:
-                print(f"[WARN] Node {node_id}: initial data not found, continuing.")
-                break
-
-            line = request_sample(node_id, serials, health)
-            parsed = parse_frame(line)
-            if parsed is not None and parsed["node_id"] == node_id:
-                report_esp_status(node_id, True)
-                latest[node_id] = parsed
-                maybe_predict(active_nodes, parsed, node_windows, last_predict_at, prediction_state)
-                print(f"  Node {node_id}: first sample received.")
-                break
-            else:
-                print(f"  Node {node_id}: no valid data yet, retrying...")
-                time.sleep(0.5)
-
-    print("Starting main loop...\n")
-    time.sleep(0.5)
+        reporter(
+            {
+                "id": node_id,
+                "isConnected": False,
+                "state": "disconnected",
+                "lastSeenMs": None,
+                "lastSeq": 0,
+                "missedPackets": 0,
+            }
+        )
 
 
 def main():
     active_nodes = choose_nodes()
     print(f"Using nodes: {active_nodes}")
+    reporter = BackendStatusReporter()
+    hub = SoftTDMAHub(active_nodes, status_callback=reporter)
+    for snapshot in hub.status_snapshots():
+        reporter(snapshot)
 
-    serials = open_ports(active_nodes)
-    health = make_health(active_nodes)
-    latest = {}
-    node_windows = {nid: deque(maxlen=WINDOW_SIZE) for nid in active_nodes}
-    last_predict_at = {"combined": 0.0}
-    prediction_state = {
-        "label": "WAITING",
-        "confidence": "-",
-        "used_nodes": [],
-    }
+    inbound = listening_socket(DATA_PORT)
+    sync_sock = broadcast_socket()
+    print(f"Listening for HELLO/DATA on UDP {DATA_PORT}")
+    print(f"Broadcasting SYNC on {SYNC_BROADCAST_HOST}:{SYNC_PORT}")
 
-    for nid in active_nodes:
-        if serials.get(nid) is not None:
-            health[nid]["opened_at"] = time.monotonic()
-
-    wait_for_initial_frames(
-        active_nodes,
-        serials,
-        latest,
-        health,
-        node_windows,
-        last_predict_at,
-        prediction_state,
-    )
+    next_sync_at = time.monotonic()
+    next_render_at = time.monotonic()
 
     try:
         while True:
-            frame_start = time.perf_counter()
-            num_nodes = len(active_nodes)
-            if num_nodes == 0:
-                print("[ERROR] No active nodes selected; exiting.")
-                break
+            now = time.monotonic()
+            if now >= next_sync_at:
+                sync_packet = hub.build_sync_packet()
+                sync_sock.sendto(sync_packet, (SYNC_BROADCAST_HOST, SYNC_PORT))
+                next_sync_at += SUPERFRAME_SECONDS
+                if next_sync_at < now:
+                    next_sync_at = now + SUPERFRAME_SECONDS
 
-            slot_period = FRAME_PERIOD / num_nodes
+            while True:
+                try:
+                    raw, addr = inbound.recvfrom(4096)
+                except BlockingIOError:
+                    break
+                try:
+                    packet = hub.handle_packet(raw, addr=addr)
+                    if packet["type"] == "hello":
+                        print(
+                            f"[HELLO] Node {packet['node_id']} from {addr[0]} "
+                            f"sync_locked={packet['sync_locked']}"
+                        )
+                except ProtocolError as exc:
+                    print(f"[WARN] Ignoring invalid packet from {addr}: {exc}")
 
-            for slot_index, node_id in enumerate(active_nodes):
-                slot_start = frame_start + slot_index * slot_period
-                now = time.perf_counter()
-                if now < slot_start:
-                    time.sleep(slot_start - now)
+            hub.refresh_states(now)
+            hub.maybe_emit_streaming_status(now)
+            hub.maybe_predict(predict_combined_window, now)
 
-                line = request_sample(node_id, serials, health)
-                if not line:
-                    continue
+            if now >= next_render_at:
+                print_table(hub, active_nodes)
+                next_render_at = now + RENDER_INTERVAL_SECONDS
 
-                parsed = parse_frame(line)
-                if parsed is not None and parsed["node_id"] == node_id:
-                    report_esp_status(node_id, True)
-                    latest[node_id] = parsed
-                    maybe_predict(active_nodes, parsed, node_windows, last_predict_at, prediction_state)
-
-            now = time.perf_counter()
-            frame_end = frame_start + FRAME_PERIOD
-            if now < frame_end:
-                time.sleep(frame_end - now)
-
-            print_table(latest, active_nodes, prediction_state)
-
+            time.sleep(0.01)
     except KeyboardInterrupt:
-        print("\nStopping TDMA hub...")
+        print("\nStopping Wi-Fi TDMA hub...")
     finally:
-        for nid in active_nodes:
-            report_esp_status(nid, False)
-        for ser in serials.values():
-            close_one(ser)
+        mark_all_disconnected(reporter, active_nodes)
+        inbound.close()
+        sync_sock.close()
 
 
 if __name__ == "__main__":

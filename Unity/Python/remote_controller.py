@@ -6,7 +6,14 @@ import hashlib
 import random
 import string
 
-DISCOVERY_PORT = 5006
+from network_config import (
+    UNITY_BRIDGE_DISCOVERY_ADDR,
+    UNITY_BRIDGE_DISCOVERY_PORT,
+    UNITY_BRIDGE_FALLBACK_HOST,
+    UNITY_BRIDGE_TCP_PORT,
+)
+
+DISCOVERY_PORT = UNITY_BRIDGE_DISCOVERY_PORT
 DISCOVERY_TIMEOUT = 3.0  # seconds
 
 # Must match SALT in bridge_server.py
@@ -26,7 +33,7 @@ def discover_bridge(secret_hash: str):
         s.settimeout(DISCOVERY_TIMEOUT)
 
         print("Searching for Unity bridge...")
-        s.sendto(message, ("255.255.255.255", DISCOVERY_PORT))
+        s.sendto(message, (UNITY_BRIDGE_DISCOVERY_ADDR, DISCOVERY_PORT))
 
         while True:
             try:
@@ -43,6 +50,21 @@ def discover_bridge(secret_hash: str):
                 ip = addr[0]
                 print(f"Bridge located at {ip}:{port}")
                 return ip, port
+
+
+def fallback_bridge():
+    if not UNITY_BRIDGE_FALLBACK_HOST.strip():
+        raise TimeoutError(
+            "No Unity bridge found by broadcast and no UNITY_BRIDGE_FALLBACK_HOST is configured."
+        )
+    try:
+        ip = socket.gethostbyname(UNITY_BRIDGE_FALLBACK_HOST)
+        print(f"Falling back to {UNITY_BRIDGE_FALLBACK_HOST}:{UNITY_BRIDGE_TCP_PORT} -> {ip}:{UNITY_BRIDGE_TCP_PORT}")
+        return ip, UNITY_BRIDGE_TCP_PORT
+    except OSError as exc:
+        raise TimeoutError(
+            f"No Unity bridge found by broadcast and hostname fallback failed for {UNITY_BRIDGE_FALLBACK_HOST}: {exc}"
+        ) from exc
 
 class UnityRemoteClient:
     def __init__(self):
@@ -66,7 +88,10 @@ class UnityRemoteClient:
         input("Press ENTER once Unity is ready with this code...")
 
     def connect(self):
-        self.host, self.port = discover_bridge(self.secret_hash)
+        try:
+            self.host, self.port = discover_bridge(self.secret_hash)
+        except TimeoutError:
+            self.host, self.port = fallback_bridge()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         print(f"Connecting to {self.host}:{self.port}...")
         self.sock.connect((self.host, self.port))

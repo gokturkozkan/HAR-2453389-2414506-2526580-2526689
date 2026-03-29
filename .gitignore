@@ -115,6 +115,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+/Hardware/ESP32/NodeConfig.local.h
+/Hardware/RaspberryPi/har_network.env
 
 # TypeScript
 *.tsbuildinfo

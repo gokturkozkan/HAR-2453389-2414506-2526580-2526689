@@ -10,11 +10,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from network_config import (
+    UNITY_BRIDGE_DISCOVERY_PORT,
+    UNITY_BRIDGE_HOST,
+    UNITY_BRIDGE_TCP_PORT,
+)
 
 #config part
-HOST = "0.0.0.0"
-TCP_PORT = 5005
-DISCOVERY_PORT = 5006
+HOST = UNITY_BRIDGE_HOST
+TCP_PORT = UNITY_BRIDGE_TCP_PORT
+DISCOVERY_PORT = UNITY_BRIDGE_DISCOVERY_PORT
 LOG_FILE = Path("unity_commands.log")
 
 PAIRING_WINDOW_SECONDS = 120  #pairin window

@@ -33,7 +33,11 @@ def init_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS esp_devices (
             id INTEGER PRIMARY KEY,
-            is_connected BOOLEAN DEFAULT 0
+            is_connected BOOLEAN DEFAULT 0,
+            state TEXT DEFAULT 'disconnected',
+            last_seen_ms INTEGER,
+            last_seq INTEGER DEFAULT 0,
+            missed_packets INTEGER DEFAULT 0
         )
     ''')
 
@@ -72,6 +76,7 @@ def init_database():
 
     db_connection.commit()
 
+    ensure_esp_device_status_columns()
     ensure_labels_sensor_columns()
     ensure_relabels_data_columns()
 
@@ -88,6 +93,24 @@ def ensure_labels_sensor_columns():
         column_name = f"esp{idx}"
         if column_name not in existing_columns:
             cursor.execute(f"ALTER TABLE labels ADD COLUMN {column_name} TEXT")
+
+    get_database().commit()
+
+
+def ensure_esp_device_status_columns():
+    cursor = get_database().cursor()
+    cursor.execute("PRAGMA table_info(esp_devices)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    migrations = {
+        "state": "ALTER TABLE esp_devices ADD COLUMN state TEXT DEFAULT 'disconnected'",
+        "last_seen_ms": "ALTER TABLE esp_devices ADD COLUMN last_seen_ms INTEGER",
+        "last_seq": "ALTER TABLE esp_devices ADD COLUMN last_seq INTEGER DEFAULT 0",
+        "missed_packets": "ALTER TABLE esp_devices ADD COLUMN missed_packets INTEGER DEFAULT 0",
+    }
+    for column_name, statement in migrations.items():
+        if column_name not in existing_columns:
+            cursor.execute(statement)
 
     get_database().commit()
 

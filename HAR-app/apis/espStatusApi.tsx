@@ -12,7 +12,15 @@ export const espStatusApi = () => {
       throw new Error(errorData?.message || `Error fetching ESP ${id} status`);
     }
 
-    return response.json();
+    const payload = await response.json();
+    return {
+      id: payload.id,
+      isConnected: payload.isConnected,
+      state: payload.state ?? (payload.isConnected ? "streaming" : "disconnected"),
+      lastSeenMs: payload.lastSeenMs ?? null,
+      lastSeq: payload.lastSeq ?? 0,
+      missedPackets: payload.missedPackets ?? 0,
+    };
   };
 
   const getEsp = async (): Promise<EspId[]> => {

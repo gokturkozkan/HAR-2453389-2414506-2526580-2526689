@@ -201,9 +201,24 @@ def mark_esp_connected_if_known(node_id):
 
     row = db_get('SELECT id FROM esp_devices WHERE id = ?', [node_id])
     if row:
-        db_run('UPDATE esp_devices SET is_connected = 1 WHERE id = ?', [node_id])
+        db_run(
+            'UPDATE esp_devices SET is_connected = 1, state = ? WHERE id = ?',
+            ['streaming', node_id],
+        )
     else:
-        db_run('INSERT INTO esp_devices (id, is_connected) VALUES (?, 1)', [node_id])
+        db_run(
+            '''
+            INSERT INTO esp_devices (
+                id,
+                is_connected,
+                state,
+                last_seen_ms,
+                last_seq,
+                missed_packets
+            ) VALUES (?, 1, ?, ?, ?, ?)
+            ''',
+            [node_id, 'streaming', None, 0, 0],
+        )
 
 
 def remember_latest_window(node_id, readings, predicted_label):

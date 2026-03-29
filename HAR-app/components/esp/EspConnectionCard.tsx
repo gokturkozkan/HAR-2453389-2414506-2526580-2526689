@@ -1,143 +1,178 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+import { EspStatus, EspConnectionState } from "@/app/types/espTypes";
+
 interface EspConnectionCardProps {
-  isConnected?: boolean;
-  count: number;
-  onConnect?: (id: number) => void;
+  device: EspStatus;
+  onRefresh?: (id: number) => void;
   loading?: boolean;
 }
 
-type CardState = "idle" | "connecting" | "success" | "failed";
+const STATE_META: Record<
+  EspConnectionState,
+  { label: string; color: string; icon: keyof typeof Ionicons.glyphMap }
+> = {
+  joining: { label: "Joining Wi-Fi", color: "#2563eb", icon: "wifi-outline" },
+  synced: { label: "Synced", color: "#7c3aed", icon: "time-outline" },
+  streaming: { label: "Streaming", color: "#16a34a", icon: "checkmark-circle" },
+  stale: { label: "Stale", color: "#d97706", icon: "alert-circle-outline" },
+  disconnected: { label: "Disconnected", color: "#dc2626", icon: "close-circle" },
+};
+
+function formatLastSeen(lastSeenMs: number | null) {
+  if (lastSeenMs == null) return "No data yet";
+  if (lastSeenMs < 1000) return `${lastSeenMs} ms ago`;
+  return `${(lastSeenMs / 1000).toFixed(1)} s ago`;
+}
 
 export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
-  isConnected = false,
-  count,
-  onConnect,
+  device,
+  onRefresh,
   loading,
 }) => {
-  const [state, setState] = useState<CardState>("idle");
-
-  useEffect(() => {
-    if (loading) {
-      setState("connecting");
-    }
-  }, [loading]);
-
-  useEffect(() => {
-    if (!loading && state === "connecting") {
-      if (isConnected) {
-        setState("success");
-      } else {
-        setState("failed");
-      }
-    }
-  }, [loading, state, isConnected]);
-
-  useEffect(() => {
-    if (state === "failed") {
-      const timer = setTimeout(() => setState("idle"), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [state]);
-
-  const renderContent = () => {
-    switch (state) {
-      case "connecting":
-        return {
-          icon: <Ionicons name="reload" size={40} color="#3b82f6" />,
-          text: "Connecting...",
-        };
-      case "success":
-        return {
-          icon: <Ionicons name="checkmark-circle" size={40} color="#22c55e" />,
-          text: "Connected",
-        };
-      case "failed":
-        return {
-          icon: <Ionicons name="close-circle" size={40} color="#ef4444" />,
-          text: "Failed",
-        };
-      default:
-        return null;
-    }
-  };
-
-  if (state !== "idle") {
-    const content = renderContent();
-    return (
-      <View style={styles.card}>
-        <View style={styles.content}>
-          <Text style={styles.title}>ESP {count}</Text>
-          <View style={styles.iconWrapper}>{content?.icon}</View>
-          <Text style={styles.statusText}>{content?.text}</Text>
-        </View>
-      </View>
-    );
-  }
+  const meta = STATE_META[device.state];
 
   return (
-    <TouchableOpacity
-      onPress={() => {
-        setState("connecting");
-        onConnect?.(count);
-      }}
-      activeOpacity={0.8}
-      style={styles.card}
-    >
-      <View style={styles.content}>
-        <Text style={styles.title}>ESP {count}</Text>
-        <View style={styles.iconWrapper}>
-          <Ionicons name="enter" size={40} color="#97a5cbff" />
+    <View style={styles.card}>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>ESP {device.id}</Text>
+        <View style={[styles.badge, { backgroundColor: `${meta.color}18` }]}>
+          <Ionicons name={meta.icon} size={16} color={meta.color} />
+          <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
         </View>
-        <Text style={styles.statusText}>Connect</Text>
       </View>
-    </TouchableOpacity>
+
+      <View style={styles.metricsRow}>
+        <View style={styles.metric}>
+          <Text style={styles.metricLabel}>Last seen</Text>
+          <Text style={styles.metricValue}>{formatLastSeen(device.lastSeenMs)}</Text>
+        </View>
+        <View style={styles.metric}>
+          <Text style={styles.metricLabel}>Sequence</Text>
+          <Text style={styles.metricValue}>{device.lastSeq}</Text>
+        </View>
+        <View style={styles.metric}>
+          <Text style={styles.metricLabel}>Missed</Text>
+          <Text style={styles.metricValue}>{device.missedPackets}</Text>
+        </View>
+      </View>
+
+      <View style={styles.footerRow}>
+        <Text style={styles.footerText}>
+          {device.isConnected ? "Node is actively streaming." : "Tap refresh to re-check node health."}
+        </Text>
+        <TouchableOpacity
+          onPress={() => onRefresh?.(device.id)}
+          activeOpacity={0.8}
+          style={[styles.actionButton, loading && styles.actionButtonDisabled]}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="white" size="small" />
+          ) : (
+            <>
+              <Ionicons name="refresh" size={16} color="white" />
+              <Text style={styles.actionText}>Refresh</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
     width: "100%",
-    maxWidth: 480,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    maxWidth: 540,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
     backgroundColor: "#ffffff",
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#e5e7eb",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowRadius: 6,
+    elevation: 3,
+    gap: 14,
   },
-  content: {
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
+    gap: 12,
   },
   title: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1f2933",
-    flex: 1,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
   },
-  iconWrapper: {
-    width: 40,
-    height: 40,
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  metric: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: "#64748b",
+    fontWeight: "600",
+  },
+  metricValue: {
+    fontSize: 14,
+    color: "#0f172a",
+    fontWeight: "700",
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  footerText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#475569",
+  },
+  actionButton: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#1e293b",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    minWidth: 108,
   },
-  statusText: {
-    fontSize: 13,
-    color: "#4b5563",
-    minWidth: 80,
-    textAlign: "right",
+  actionButtonDisabled: {
+    opacity: 0.7,
   },
-  spin: {
-    transform: [{ rotate: "0deg" }],
+  actionText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });
