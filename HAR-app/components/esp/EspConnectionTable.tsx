@@ -1,27 +1,21 @@
 import React from "react";
-import { ScrollView, View, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { EspConnectionCard } from "./EspConnectionCard";
 import { EspStatus } from "@/app/types/espTypes";
 
 interface EspConnectionTableProps {
   esps: EspStatus[];
-  onConnect?: (id: number) => void;
-  loadingId?: number | null;
 }
 
-export const EspConnectionTable: React.FC<EspConnectionTableProps> = ({ 
-  esps, 
-  onConnect,
-  loadingId
-}) => {
+export const EspConnectionTable: React.FC<EspConnectionTableProps> = ({ esps }) => {
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <View style={styles.container}>
       {esps.map((esp) => (
         <View key={esp.id} style={styles.item}>
-          <EspConnectionCard count={esp.id} isConnected={esp.isConnected ?? undefined} onConnect={onConnect} loading={loadingId === esp.id} />
+          <EspConnectionCard esp={esp} />
         </View>
       ))}
-    </ScrollView>
+    </View>
   );
 };
 

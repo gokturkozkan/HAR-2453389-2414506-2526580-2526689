@@ -1,0 +1,39 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "name": "ESP32_NODE_1",
+      "mac": "08:A6:F7:47:4C:CE"
+    },
+    {
+      "id": 2,
+      "name": "ESP32_NODE_2",
+      "mac": "94:54:C5:E7:E4:1A"
+    },
+    {
+      "id": 3,
+      "name": "ESP32_NODE_3",
+      "mac": "94:54:C5:E7:E7:16"
+    },
+    {
+      "id": 4,
+      "name": "ESP32_NODE_4",
+      "mac": "C8:2E:18:8E:EA:DE"
+    },
+    {
+      "id": 5,
+      "name": "ESP32_NODE_5",
+      "mac": "10:06:1C:85:EC:86"
+    },
+    {
+      "id": 6,
+      "name": "ESP32_NODE_6",
+      "mac": "08:D1:F9:DF:D7:BA"
+    },
+    {
+      "id": 7,
+      "name": "ESP32_NODE_7",
+      "mac": "94:54:C5:E8:ED:D2"
+    }
+  ]
+}

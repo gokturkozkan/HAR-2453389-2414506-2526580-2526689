@@ -1,6 +1,7 @@
 
 import { createContext, useState, useEffect, ReactNode, useMemo, useCallback } from 'react';
 import { espStatusApi } from '@/apis/espStatusApi';
+import { EspStatus } from '../types/espTypes';
 
 interface ConnectionContextType {
   connection: boolean; 
@@ -12,9 +13,19 @@ export const ConnectionContext = createContext<ConnectionContextType>({
   setConnection: () => {},
 });
 
+function areAllNodesStreaming(statuses: EspStatus[]): boolean {
+  return (
+    statuses.length > 0 &&
+    statuses.every((esp) => {
+      const state = esp.state ?? (esp.isConnected ? 'streaming' : 'disconnected');
+      return state === 'streaming';
+    })
+  );
+}
+
 export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [connection, setConnectionState] = useState<boolean>(false);
-  const { getEsp, getEspStatus } = useMemo(() => espStatusApi(), []);
+  const { getEspStatuses } = useMemo(() => espStatusApi(), []);
   
   // Explicitly set connection to false on mount
   useEffect(() => {
@@ -35,40 +46,25 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
     const refreshConnection = async () => {
       try {
-        const esps = await getEsp();
-
-        if (!esps || esps.length === 0) {
+        const statuses = await getEspStatuses();
+        if (!statuses || statuses.length === 0) {
           if (!cancelled) setConnectionState(false);
           return;
         }
-
-        const statusResults = await Promise.allSettled(
-          esps.map((esp) => getEspStatus(esp.id))
-        );
-
-        // Keep current state when refresh has transient request failures.
-        const hasFailures = statusResults.some((result) => result.status === 'rejected');
-        if (hasFailures) {
-          return;
-        }
-
-        const allConnected = statusResults.every(
-          (result) => result.status === 'fulfilled' && result.value.isConnected === true
-        );
-        if (!cancelled) setConnectionState(allConnected);
+        if (!cancelled) setConnectionState(areAllNodesStreaming(statuses));
       } catch (error) {
         console.error("Connection refresh failed:", error);
       }
     };
 
     refreshConnection();
-    const interval = setInterval(refreshConnection, 30000);
+    const interval = setInterval(refreshConnection, 5000);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [getEsp, getEspStatus]);
+  }, [getEspStatuses]);
 
   // CRITICAL: Memoize the value object so React detects changes
   const value = useMemo(() => ({ connection, setConnection }), [connection, setConnection]);

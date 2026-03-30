@@ -1,26 +1,37 @@
 set -euo pipefail
 
-MACS=(
-  "08:A6:F7:47:4C:CE"
-  "94:54:C5:E7:E4:1A"
-  "94:54:C5:E7:E7:16"
-  "C8:2E:18:8E:EA:DE"
-  "10:06:1C:85:EC:86"
-  "08:D1:F9:DF:D7:BA"
-  "94:54:C5:E8:ED:D2"
-  
-)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REGISTRY_PATH="${HAR_BLE_NODE_REGISTRY:-${SCRIPT_DIR}/ble_node_registry.json}"
+CHANNEL="${RFCOMM_CHANNEL:-1}"
 
-CHANNEL=1
-START_INDEX=0
+if [[ ! -f "${REGISTRY_PATH}" ]]; then
+  echo "Registry not found: ${REGISTRY_PATH}" >&2
+  exit 1
+fi
 
 sudo rfcomm release all || true
 
-i=$START_INDEX
-for mac in "${MACS[@]}"; do
-  echo "Binding rfcomm${i} -> ${mac} ch${CHANNEL}"
-  sudo rfcomm bind "$i" "$mac" "$CHANNEL"
-  i=$((i+1))
+mapfile -t NODE_ROWS < <(
+  python3 - "${REGISTRY_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+
+for item in sorted(data.get("nodes", []), key=lambda row: int(row["id"])):
+    node_id = int(item["id"])
+    index = node_id - 1
+    name = str(item.get("name", f"ESP32_NODE_{node_id}"))
+    mac = str(item["mac"])
+    print(f"{index}|{mac}|{name}")
+PY
+)
+
+for row in "${NODE_ROWS[@]}"; do
+  IFS="|" read -r index mac name <<<"${row}"
+  echo "Binding rfcomm${index} -> ${name} (${mac}) ch${CHANNEL}"
+  sudo rfcomm bind "${index}" "${mac}" "${CHANNEL}"
 done
 
 echo "Done."

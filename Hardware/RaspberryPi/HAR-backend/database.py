@@ -33,7 +33,16 @@ def init_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS esp_devices (
             id INTEGER PRIMARY KEY,
-            is_connected BOOLEAN DEFAULT 0
+            is_connected BOOLEAN DEFAULT 0,
+            transport TEXT,
+            state TEXT DEFAULT 'disconnected',
+            last_seen_ms INTEGER,
+            last_seen_at TEXT,
+            last_seq INTEGER DEFAULT 0,
+            missed_packets INTEGER DEFAULT 0,
+            boot_id INTEGER,
+            firmware_version INTEGER,
+            last_error TEXT
         )
     ''')
 
@@ -74,6 +83,7 @@ def init_database():
 
     ensure_labels_sensor_columns()
     ensure_relabels_data_columns()
+    ensure_esp_device_columns()
 
     seed_mock_unity_images()
     seed_labels_table()
@@ -99,6 +109,30 @@ def ensure_relabels_data_columns():
 
     if "esp_data" not in existing_columns:
         cursor.execute("ALTER TABLE relabels ADD COLUMN esp_data TEXT")
+
+    get_database().commit()
+
+
+def ensure_esp_device_columns():
+    cursor = get_database().cursor()
+    cursor.execute("PRAGMA table_info(esp_devices)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    expected_columns = {
+        "transport": "TEXT",
+        "state": "TEXT DEFAULT 'disconnected'",
+        "last_seen_ms": "INTEGER",
+        "last_seen_at": "TEXT",
+        "last_seq": "INTEGER DEFAULT 0",
+        "missed_packets": "INTEGER DEFAULT 0",
+        "boot_id": "INTEGER",
+        "firmware_version": "INTEGER",
+        "last_error": "TEXT",
+    }
+
+    for column_name, column_type in expected_columns.items():
+        if column_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE esp_devices ADD COLUMN {column_name} {column_type}")
 
     get_database().commit()
 
