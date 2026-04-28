@@ -1,304 +1,244 @@
 import os
 import copy
-import torch
+import joblib
 import numpy as np
-from flask import Blueprint, request, jsonify
-from sklearn.preprocessing import StandardScaler
+import tensorflow as tf
 
+from flask import Blueprint, request, jsonify
 from database import db_run, db_get
 
-activity_bp = Blueprint('activity', __name__)
+activity_bp = Blueprint("activity", __name__)
 
 MODEL = None
 SCALER = None
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-WINDOW_SIZE = 32
-COMBINED_KEY = '_combined'
+LABEL_ENCODER = None
 
-LABELS = ['standing', 'walking', 'sitting', 'lying']
-REQUIRED_FEATURES = ('ax', 'ay', 'az', 'gx', 'gy', 'gz')
+WINDOW_SIZE = 200
+NODE_IDS = [1, 2, 3]
+COMBINED_KEY = "_combined"
+
+FEATURES_PER_NODE = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
+
 LATEST_WINDOWS_BY_NODE = {}
 LAST_NODE_ID = None
 
 
-class HARNet(torch.nn.Module):
-    def __init__(self, num_features, num_classes):
-        super().__init__()
-
-        self.conv_block = torch.nn.Sequential(
-            torch.nn.Conv1d(num_features, 128, kernel_size=5, padding=2),
-            torch.nn.BatchNorm1d(128),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.2),
-
-            torch.nn.Conv1d(128, 128, kernel_size=5, padding=2),
-            torch.nn.BatchNorm1d(128),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.2),
-        )
-
-        self.lstm = torch.nn.LSTM(
-            input_size=128,
-            hidden_size=128,
-            num_layers=2,
-            batch_first=True,
-            bidirectional=True,
-            dropout=0.2,
-        )
-
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(256, 128),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.3),
-            torch.nn.Linear(128, num_classes),
-        )
-
-    def forward(self, x):
-        x = x.transpose(1, 2)   # (B, F, T)
-        x = self.conv_block(x)  # (B, 128, T)
-        x = x.transpose(1, 2)   # (B, T, 128)
-        x, _ = self.lstm(x)     # (B, T, 256)
-        x = x[:, -1, :]         # last timestep
-        x = self.classifier(x)
-        return x
-
-
 def load_model():
-    global MODEL, SCALER
+    global MODEL, SCALER, LABEL_ENCODER
 
     base_dir = os.path.dirname(__file__)
-    model_path = os.path.abspath(os.path.join(base_dir, '..', '..', 'model', 'activity_recognition_model.pt'))
-    scaler_path = os.path.abspath(os.path.join(base_dir, '..', '..', 'model', 'scaler.npz'))
+    model_dir = os.path.abspath(os.path.join(base_dir, "..", "..", "model"))
 
-    print("base_dir:", base_dir)
+    model_path = os.path.join(model_dir, "pamap2_basic_har_model.keras")
+    scaler_path = os.path.join(model_dir, "pamap2_basic_scaler.pkl")
+    label_encoder_path = os.path.join(model_dir, "pamap2_basic_label_encoder.pkl")
+
     print("model_path exists:", os.path.exists(model_path), model_path)
     print("scaler_path exists:", os.path.exists(scaler_path), scaler_path)
+    print("label_encoder_path exists:", os.path.exists(label_encoder_path), label_encoder_path)
 
-    checkpoint = torch.load(model_path, map_location=DEVICE)
-    print("checkpoint type:", type(checkpoint))
-    if isinstance(checkpoint, dict):
-        print("checkpoint keys:", checkpoint.keys())
+    MODEL = tf.keras.models.load_model(model_path)
+    SCALER = joblib.load(scaler_path)
+    LABEL_ENCODER = joblib.load(label_encoder_path)
 
-    MODEL = HARNet(num_features=6, num_classes=4).to(DEVICE)
-    MODEL.load_state_dict(checkpoint['model_state'])
-    MODEL.eval()
-
-    scaler_np = np.load(scaler_path)
-    print("scaler keys:", scaler_np.files)
-
-    SCALER = StandardScaler()
-    SCALER.mean_ = scaler_np['mean']
-    SCALER.scale_ = scaler_np['scale']
-    SCALER.var_ = SCALER.scale_ ** 2
-    SCALER.n_features_in_ = len(SCALER.mean_)
-
-    print(f"✓ Model loaded on {DEVICE}")
+    print("✓ PAMAP2 HAR model loaded")
 
 
-def predict_activity(sensor_data):
-    if MODEL is None or SCALER is None:
-        raise RuntimeError("Model or scaler not loaded")
+def validate_node_readings(readings, node_id):
+    if not isinstance(readings, list):
+        raise ValueError(f"Node {node_id} readings must be a list")
 
-    if len(sensor_data) != WINDOW_SIZE:
-        raise ValueError(f"Exactly {WINDOW_SIZE} readings are required")
+    if len(readings) != WINDOW_SIZE:
+        raise ValueError(f"Node {node_id} must have exactly {WINDOW_SIZE} readings")
 
-    data_array = np.array([
-        [d['ax'], d['ay'], d['az'], d['gx'], d['gy'], d['gz']]
-        for d in sensor_data
-    ], dtype=np.float32)
-
-    print("INPUT SAMPLE (first row):", data_array[0], flush=True)
-    print("INPUT SAMPLE (last row):", data_array[-1], flush=True)
-
-    data_array = SCALER.transform(data_array)
-    data_array = np.nan_to_num(data_array, nan=0.0, posinf=0.0, neginf=0.0)
-    data_array = np.clip(data_array, -10.0, 10.0)
-
-    tensor = torch.tensor(data_array, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-
-    with torch.no_grad():
-        output = MODEL(tensor)
-        probs = torch.softmax(output, dim=1).detach().cpu().numpy()[0]
-
-        prob_map = {
-            "standing": float(probs[0]),
-            "walking": float(probs[1]),
-            "sitting": float(probs[2]),
-            "lying": float(probs[3]),
-        }
-        print("\n=== CLASS PROBABILITIES ===", flush=True)
-        print(prob_map, flush=True)
-
-        activity_idx = int(np.argmax(probs))
-        confidence = float(probs[activity_idx])
-
-    return LABELS[activity_idx], confidence
-
-
-def validate_sensor_readings(sensor_data):
-    if not isinstance(sensor_data, list):
-        raise ValueError('Sensor readings must be a list')
-
-    if len(sensor_data) != WINDOW_SIZE:
-        raise ValueError(f'Exactly {WINDOW_SIZE} readings are required')
-
-    for i, reading in enumerate(sensor_data):
+    for i, reading in enumerate(readings):
         if not isinstance(reading, dict):
-            raise ValueError(f'Reading at index {i} must be an object')
+            raise ValueError(f"Node {node_id}, reading {i} must be an object")
 
-        for key in REQUIRED_FEATURES:
+        for key in FEATURES_PER_NODE:
             if key not in reading:
-                raise ValueError(f"Reading at index {i} is missing '{key}'")
+                raise ValueError(f"Node {node_id}, reading {i} is missing '{key}'")
+
             try:
                 float(reading[key])
             except (TypeError, ValueError):
-                raise ValueError(f"Reading at index {i} has non-numeric '{key}'")
+                raise ValueError(f"Node {node_id}, reading {i} has non-numeric '{key}'")
 
 
 def validate_windows_by_node(windows_by_node):
-    if not isinstance(windows_by_node, dict) or not windows_by_node:
-        raise ValueError('windows_by_node must be a non-empty object')
+    if not isinstance(windows_by_node, dict):
+        raise ValueError("windows_by_node must be an object")
 
     normalized = {}
-    for raw_node_id, readings in windows_by_node.items():
-        try:
-            node_id = int(raw_node_id)
-        except (TypeError, ValueError):
-            raise ValueError(f'Invalid node id in windows_by_node: {raw_node_id}')
-        validate_sensor_readings(readings)
+
+    for node_id in NODE_IDS:
+        key = str(node_id)
+
+        if key not in windows_by_node:
+            raise ValueError(f"Missing node {node_id} window")
+
+        readings = windows_by_node[key]
+        validate_node_readings(readings, node_id)
         normalized[node_id] = readings
 
     return normalized
 
 
-def combine_windows_by_node(windows_by_node):
-    node_ids = sorted(windows_by_node.keys())
-    if not node_ids:
-        raise ValueError('At least one node window is required')
+def build_model_input(windows_by_node):
+    rows = []
 
-    combined = []
-    for idx in range(WINDOW_SIZE):
-        merged = {}
-        for feature in REQUIRED_FEATURES:
-            values = [float(windows_by_node[node_id][idx][feature]) for node_id in node_ids]
-            merged[feature] = sum(values) / len(values)
-        combined.append(merged)
+    for t in range(WINDOW_SIZE):
+        row = []
 
-    return combined, node_ids
+        for node_id in NODE_IDS:
+            reading = windows_by_node[node_id][t]
+
+            for feature in FEATURES_PER_NODE:
+                row.append(float(reading[feature]))
+
+        rows.append(row)
+
+    data_array = np.array(rows, dtype=np.float32)
+
+    print("INPUT SHAPE BEFORE SCALER:", data_array.shape, flush=True)
+    print("INPUT FIRST ROW:", data_array[0], flush=True)
+    print("INPUT LAST ROW:", data_array[-1], flush=True)
+
+    data_array = SCALER.transform(data_array)
+    data_array = np.nan_to_num(data_array, nan=0.0, posinf=0.0, neginf=0.0)
+    data_array = np.clip(data_array, -10.0, 10.0)
+
+    return np.expand_dims(data_array, axis=0)
+
+
+def predict_activity(windows_by_node):
+    if MODEL is None or SCALER is None or LABEL_ENCODER is None:
+        raise RuntimeError("Model, scaler, or label encoder not loaded")
+
+    model_input = build_model_input(windows_by_node)
+
+    probs = MODEL.predict(model_input, verbose=0)[0]
+
+    prob_map = {
+        str(label): float(prob)
+        for label, prob in zip(LABEL_ENCODER.classes_, probs)
+    }
+
+    print("\n=== CLASS PROBABILITIES ===", flush=True)
+    print(prob_map, flush=True)
+
+    activity_idx = int(np.argmax(probs))
+    confidence = float(probs[activity_idx])
+    activity = LABEL_ENCODER.inverse_transform([activity_idx])[0]
+
+    return activity, confidence
 
 
 def upsert_current_label(label):
-    row = db_get('SELECT id FROM labels WHERE id = 1')
+    row = db_get("SELECT id FROM labels WHERE id = 1")
+
     if row:
-        db_run('UPDATE labels SET name = ? WHERE id = 1', [label])
+        db_run("UPDATE labels SET name = ? WHERE id = 1", [label])
     else:
-        db_run('INSERT INTO labels (id, name) VALUES (1, ?)', [label])
+        db_run("INSERT INTO labels (id, name) VALUES (1, ?)", [label])
 
 
 def mark_esp_connected_if_known(node_id):
     if node_id is None:
         return
 
-    row = db_get('SELECT id FROM esp_devices WHERE id = ?', [node_id])
+    row = db_get("SELECT id FROM esp_devices WHERE id = ?", [node_id])
+
     if row:
-        db_run('UPDATE esp_devices SET is_connected = 1 WHERE id = ?', [node_id])
+        db_run("UPDATE esp_devices SET is_connected = 1 WHERE id = ?", [node_id])
     else:
-        db_run('INSERT INTO esp_devices (id, is_connected) VALUES (?, 1)', [node_id])
+        db_run("INSERT INTO esp_devices (id, is_connected) VALUES (?, 1)", [node_id])
 
 
 def remember_latest_window(node_id, readings, predicted_label):
     global LAST_NODE_ID
-    key = node_id if node_id is not None else '_default'
-    LATEST_WINDOWS_BY_NODE[key] = {
-        'node_id': node_id,
-        'predicted_label': predicted_label,
-        'readings': copy.deepcopy(readings),
+
+    LATEST_WINDOWS_BY_NODE[node_id] = {
+        "node_id": node_id,
+        "predicted_label": predicted_label,
+        "readings": copy.deepcopy(readings),
     }
-    LAST_NODE_ID = key
+
+    LAST_NODE_ID = node_id
 
 
-def remember_latest_combined_window(node_ids, readings, predicted_label):
+def remember_latest_combined_window(node_ids, windows_by_node, predicted_label):
     global LAST_NODE_ID
+
     LATEST_WINDOWS_BY_NODE[COMBINED_KEY] = {
-        'node_id': None,
-        'node_ids': list(node_ids),
-        'predicted_label': predicted_label,
-        'readings': copy.deepcopy(readings),
+        "node_id": None,
+        "node_ids": list(node_ids),
+        "predicted_label": predicted_label,
+        "windows_by_node": copy.deepcopy(windows_by_node),
     }
+
     LAST_NODE_ID = COMBINED_KEY
 
 
 def get_latest_window(node_id=None):
     key = node_id if node_id is not None else LAST_NODE_ID
+
     if key is None:
         return None
+
     item = LATEST_WINDOWS_BY_NODE.get(key)
+
     if item is None and node_id is None:
         item = LATEST_WINDOWS_BY_NODE.get(COMBINED_KEY)
-    if item is None and node_id is None:
-        item = LATEST_WINDOWS_BY_NODE.get('_default')
+
     return copy.deepcopy(item) if item is not None else None
 
 
 def get_all_latest_node_windows():
     windows = []
+
     for key, value in LATEST_WINDOWS_BY_NODE.items():
         if isinstance(key, int):
             windows.append(copy.deepcopy(value))
-    windows.sort(key=lambda item: item.get('node_id', 0))
+
+    windows.sort(key=lambda item: item.get("node_id", 0))
     return windows
 
 
-@activity_bp.route('/predict', methods=['POST'])
+@activity_bp.route("/predict", methods=["POST"])
 def predict_endpoint():
     try:
         data = request.get_json() or {}
-        node_id = data.get('node_id')
-        readings = data.get('readings')
-        windows_by_node = data.get('windows_by_node')
-        validated_windows = None
 
-        used_node_ids = []
-        if windows_by_node is not None:
-            validated_windows = validate_windows_by_node(windows_by_node)
-            combined_readings, used_node_ids = combine_windows_by_node(validated_windows)
-            readings = combined_readings
-        else:
-            if not readings:
-                return jsonify({'error': 'No sensor readings provided'}), 400
-            validate_sensor_readings(readings)
-            if node_id is not None:
-                used_node_ids = [node_id]
+        windows_by_node = data.get("windows_by_node")
 
-        activity, confidence = predict_activity(readings)
+        if windows_by_node is None:
+            return jsonify({"error": "windows_by_node is required"}), 400
+
+        validated_windows = validate_windows_by_node(windows_by_node)
+
+        activity, confidence = predict_activity(validated_windows)
 
         upsert_current_label(activity)
 
-        if validated_windows is not None:
-            remember_latest_combined_window(used_node_ids, readings, activity)
-            for used_node_id, node_readings in validated_windows.items():
-                remember_latest_window(used_node_id, node_readings, activity)
-                mark_esp_connected_if_known(used_node_id)
-        else:
-            remember_latest_window(node_id, readings, activity)
+        remember_latest_combined_window(NODE_IDS, validated_windows, activity)
+
+        for node_id, node_readings in validated_windows.items():
+            remember_latest_window(node_id, node_readings, activity)
             mark_esp_connected_if_known(node_id)
 
-        response = {
-            'node_id': node_id,
-            'used_node_ids': used_node_ids or ([node_id] if node_id is not None else []),
-            'activity': activity,
-            'confidence': round(confidence, 4)
-        }
-        if windows_by_node is not None:
-            response['fusion'] = 'average_per_timestep'
-
-        return jsonify(response)
+        return jsonify({
+            "used_node_ids": NODE_IDS,
+            "activity": activity,
+            "confidence": round(confidence, 4),
+            "fusion": "pamap2_3_node_feature_concat"
+        })
 
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({"error": str(e)}), 400
 
     except Exception as e:
-      import traceback
-      print("PREDICT ERROR:", repr(e))
-      traceback.print_exc()
-      return jsonify({'error': str(e)}), 500
+        import traceback
+        print("PREDICT ERROR:", repr(e))
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500

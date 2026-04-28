@@ -3,9 +3,10 @@ import { EspStatus, EspId } from "../app/types/espTypes";
 
 export const espStatusApi = () => {
   const getEspStatus = async (id: number): Promise<EspStatus> => {
-    const response = await fetch(`${API_URL}/esp-status?id=${encodeURIComponent(id)}`, {
-      method: "GET",
-    });
+    const response = await fetch(
+      `${API_URL}/esp-status?id=${encodeURIComponent(id)}`,
+      { method: "GET" }
+    );
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
@@ -25,7 +26,11 @@ export const espStatusApi = () => {
       throw new Error(errorData?.message || "Error fetching ESPs");
     }
 
-    return response.json();
+    const data = await response.json();
+
+    return data
+      .filter((esp: EspId) => [1, 2, 3].includes(esp.id))
+      .sort((a: EspId, b: EspId) => a.id - b.id);
   };
 
   return { getEspStatus, getEsp };

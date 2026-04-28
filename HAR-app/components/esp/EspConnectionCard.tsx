@@ -1,97 +1,81 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import React from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 interface EspConnectionCardProps {
-  isConnected?: boolean;
+  isConnected?: boolean | null;
   count: number;
   onConnect?: (id: number) => void;
   loading?: boolean;
 }
 
-type CardState = "idle" | "connecting" | "success" | "failed";
+const NODE_NAMES: Record<number, string> = {
+  1: "Wrist",
+  2: "Chest",
+  3: "Ankle",
+};
 
 export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
   isConnected = false,
   count,
   onConnect,
-  loading,
+  loading = false,
 }) => {
-  const [state, setState] = useState<CardState>("idle");
+  const connected = isConnected === true;
+  const unknown = isConnected === null || isConnected === undefined;
 
-  useEffect(() => {
-    if (loading) {
-      setState("connecting");
-    }
-  }, [loading]);
+  const icon = loading ? (
+    <ActivityIndicator size="small" color="#2563eb" />
+  ) : connected ? (
+    <Ionicons name="checkmark-circle" size={38} color="#22c55e" />
+  ) : unknown ? (
+    <Ionicons name="help-circle" size={38} color="#94a3b8" />
+  ) : (
+    <Ionicons name="close-circle" size={38} color="#ef4444" />
+  );
 
-  useEffect(() => {
-    if (!loading && state === "connecting") {
-      if (isConnected) {
-        setState("success");
-      } else {
-        setState("failed");
-      }
-    }
-  }, [loading, state, isConnected]);
-
-  useEffect(() => {
-    if (state === "failed") {
-      const timer = setTimeout(() => setState("idle"), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [state]);
-
-  const renderContent = () => {
-    switch (state) {
-      case "connecting":
-        return {
-          icon: <Ionicons name="reload" size={40} color="#3b82f6" />,
-          text: "Connecting...",
-        };
-      case "success":
-        return {
-          icon: <Ionicons name="checkmark-circle" size={40} color="#22c55e" />,
-          text: "Connected",
-        };
-      case "failed":
-        return {
-          icon: <Ionicons name="close-circle" size={40} color="#ef4444" />,
-          text: "Failed",
-        };
-      default:
-        return null;
-    }
-  };
-
-  if (state !== "idle") {
-    const content = renderContent();
-    return (
-      <View style={styles.card}>
-        <View style={styles.content}>
-          <Text style={styles.title}>ESP {count}</Text>
-          <View style={styles.iconWrapper}>{content?.icon}</View>
-          <Text style={styles.statusText}>{content?.text}</Text>
-        </View>
-      </View>
-    );
-  }
+  const statusText = loading
+    ? "Checking..."
+    : connected
+      ? "Connected"
+      : unknown
+        ? "Unknown"
+        : "Disconnected";
 
   return (
     <TouchableOpacity
-      onPress={() => {
-        setState("connecting");
-        onConnect?.(count);
-      }}
-      activeOpacity={0.8}
-      style={styles.card}
+      onPress={() => onConnect?.(count)}
+      activeOpacity={0.85}
+      disabled={loading}
+      style={[
+        styles.card,
+        connected && styles.cardConnected,
+        !connected && !unknown && styles.cardDisconnected,
+      ]}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>ESP {count}</Text>
-        <View style={styles.iconWrapper}>
-          <Ionicons name="enter" size={40} color="#97a5cbff" />
+        <View style={styles.left}>
+          <Text style={styles.title}>Node {count}</Text>
+          <Text style={styles.subtitle}>{NODE_NAMES[count] ?? "Sensor"}</Text>
         </View>
-        <Text style={styles.statusText}>Connect</Text>
+
+        <View style={styles.iconWrapper}>{icon}</View>
+
+        <Text
+          style={[
+            styles.statusText,
+            connected && styles.statusConnected,
+            !connected && !unknown && styles.statusDisconnected,
+          ]}
+        >
+          {statusText}
+        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -100,44 +84,63 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     width: "100%",
-    maxWidth: 480,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    maxWidth: 520,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     backgroundColor: "#ffffff",
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#e5e7eb",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  cardConnected: {
+    borderColor: "#bbf7d0",
+    backgroundColor: "#f0fdf4",
+  },
+  cardDisconnected: {
+    borderColor: "#fecaca",
+    backgroundColor: "#fff1f2",
   },
   content: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
+    gap: 14,
+  },
+  left: {
+    flex: 1,
   },
   title: {
     fontSize: 16,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  subtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#64748b",
     fontWeight: "600",
-    color: "#1f2933",
-    flex: 1,
   },
   iconWrapper: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
   },
   statusText: {
     fontSize: 13,
-    color: "#4b5563",
-    minWidth: 80,
+    color: "#64748b",
+    minWidth: 96,
     textAlign: "right",
+    fontWeight: "800",
   },
-  spin: {
-    transform: [{ rotate: "0deg" }],
+  statusConnected: {
+    color: "#15803d",
+  },
+  statusDisconnected: {
+    color: "#dc2626",
   },
 });

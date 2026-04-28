@@ -4,174 +4,247 @@ import os
 import json
 import html
 
-admin_bp = Blueprint('admin', __name__)
+admin_bp = Blueprint("admin", __name__)
+
+NODE_NAMES = {
+    1: "Wrist / Hand",
+    2: "Chest",
+    3: "Ankle",
+}
+
 
 def admin_guard():
-    """Simple guard using ADMIN_TOKEN for dev environments"""
-    token_required = os.getenv('ADMIN_TOKEN')
+    """Simple guard using ADMIN_TOKEN for dev environments."""
+    token_required = os.getenv("ADMIN_TOKEN")
+
     if not token_required:
         return True
-    
-    header_token = request.headers.get('x-admin-token')
-    query_token = request.args.get('token', '')
-    
-    if header_token == token_required or query_token == token_required:
-        return True
-    
-    return False
+
+    header_token = request.headers.get("x-admin-token")
+    query_token = request.args.get("token", "")
+
+    return header_token == token_required or query_token == token_required
 
 
-@admin_bp.route('/admin/users.json', methods=['GET'])
+@admin_bp.route("/admin/users.json", methods=["GET"])
 def get_users_json():
     if not admin_guard():
-        return 'Unauthorized', 401
-    
+        return "Unauthorized", 401
+
     try:
-        users = db_all('SELECT id, username, created_at FROM users ORDER BY created_at DESC LIMIT 100')
+        users = db_all(
+            "SELECT id, username, created_at FROM users ORDER BY created_at DESC LIMIT 100"
+        )
         return jsonify(users)
     except Exception:
-        return jsonify({'message': 'Failed to load users'}), 500
+        return jsonify({"message": "Failed to load users"}), 500
 
 
-@admin_bp.route('/admin/esp-devices.json', methods=['GET'])
+@admin_bp.route("/admin/esp-devices.json", methods=["GET"])
 def get_esp_devices_json():
     if not admin_guard():
-        return 'Unauthorized', 401
-    
+        return "Unauthorized", 401
+
     try:
-        esps = db_all('SELECT id, is_connected as isConnected FROM esp_devices ORDER BY id ASC LIMIT 200')
+        esps = db_all(
+            "SELECT id, is_connected as isConnected "
+            "FROM esp_devices "
+            "WHERE id IN (1, 2, 3) "
+            "ORDER BY id ASC"
+        )
+
+        for esp in esps:
+            esp["name"] = NODE_NAMES.get(esp["id"], f"Node {esp['id']}")
+
         return jsonify(esps)
+
     except Exception:
-        return jsonify({'message': 'Failed to load esp devices'}), 500
+        return jsonify({"message": "Failed to load esp devices"}), 500
 
 
-@admin_bp.route('/admin', methods=['GET'])
+@admin_bp.route("/admin", methods=["GET"])
 def admin_page():
     if not admin_guard():
-        return 'Unauthorized', 401
-    
+        return "Unauthorized", 401
+
     try:
-        users = db_all('SELECT id, username, created_at FROM users ORDER BY created_at DESC LIMIT 100')
-        esps = db_all('SELECT id, is_connected as isConnected FROM esp_devices ORDER BY id ASC LIMIT 200')
-        labels = db_all('SELECT id, name FROM labels ORDER BY id ASC')
-        relabels = db_all(
-            'SELECT id, node_id, original_label, new_label, sensor_data, esp_data, created_at '
-            'FROM relabels ORDER BY created_at DESC, id DESC LIMIT 100'
+        users = db_all(
+            "SELECT id, username, created_at FROM users ORDER BY created_at DESC LIMIT 100"
         )
-        
-        current_label_query = db_all('SELECT id, name FROM labels ORDER BY id ASC LIMIT 1')
+
+        esps = db_all(
+            "SELECT id, is_connected as isConnected "
+            "FROM esp_devices "
+            "WHERE id IN (1, 2, 3) "
+            "ORDER BY id ASC"
+        )
+
+        labels = db_all("SELECT id, name FROM labels ORDER BY id ASC")
+
+        relabels = db_all(
+            "SELECT id, node_id, original_label, new_label, sensor_data, esp_data, created_at "
+            "FROM relabels ORDER BY created_at DESC, id DESC LIMIT 100"
+        )
+
+        current_label_query = db_all(
+            "SELECT id, name FROM labels ORDER BY id ASC LIMIT 1"
+        )
         current_label = current_label_query[0] if current_label_query else None
 
         def safe_text(value):
             if value is None:
-                return ''
+                return ""
             return html.escape(str(value))
 
         def parse_sensor_data(raw_json):
+            """
+            Supports the new 3-node PAMAP2-style data.
+
+            Each reading can contain:
+            ax, ay, az, gx, gy, gz, mx, my, mz
+            """
+
             if not raw_json:
                 return []
 
             try:
                 parsed = json.loads(raw_json)
+
                 if not isinstance(parsed, list):
                     return []
 
                 cleaned = []
+
                 for row in parsed:
                     if not isinstance(row, dict):
                         continue
 
                     cleaned.append({
-                        'ax': row.get('ax', ''),
-                        'ay': row.get('ay', ''),
-                        'az': row.get('az', ''),
-                        'gx': row.get('gx', ''),
-                        'gy': row.get('gy', ''),
-                        'gz': row.get('gz', ''),
+                        "ax": row.get("ax", ""),
+                        "ay": row.get("ay", ""),
+                        "az": row.get("az", ""),
+                        "gx": row.get("gx", ""),
+                        "gy": row.get("gy", ""),
+                        "gz": row.get("gz", ""),
+                        "mx": row.get("mx", ""),
+                        "my": row.get("my", ""),
+                        "mz": row.get("mz", ""),
                     })
+
                 return cleaned
+
             except Exception:
                 return []
 
-        # Generate user rows
-        user_rows = ''.join([
-            f'<tr><td>{safe_text(u["id"])}</td><td>{safe_text(u["username"])}</td><td>{safe_text(u.get("created_at", ""))}</td></tr>'
+        def node_name(node_id):
+            try:
+                return NODE_NAMES.get(int(node_id), f"Node {node_id}")
+            except Exception:
+                return ""
+
+        user_rows = "".join([
+            (
+                f"<tr>"
+                f"<td>{safe_text(u['id'])}</td>"
+                f"<td>{safe_text(u['username'])}</td>"
+                f"<td>{safe_text(u.get('created_at', ''))}</td>"
+                f"</tr>"
+            )
             for u in users
         ])
-        
-        # Generate ESP rows
-        esp_rows = ''
+
+        esp_rows = ""
+
         for e in esps:
-            is_connected = e.get('isConnected')
+            esp_id = e.get("id")
+            is_connected = e.get("isConnected")
+
             if is_connected == 1 or is_connected is True:
                 status = '<span class="pill ok">connected</span>'
             elif is_connected == 0 or is_connected is False:
                 status = '<span class="pill bad">disconnected</span>'
             else:
                 status = '<span class="pill unk">unknown</span>'
-            esp_rows += f'<tr><td>{safe_text(e["id"])}</td><td>{status}</td></tr>'
 
-        # Generate label rows
-        label_rows = ''
-        for l in labels:
-            label_rows += f'<tr><td>{safe_text(l["id"])}</td><td>{safe_text(l["name"])}</td></tr>'
+            esp_rows += (
+                f"<tr>"
+                f"<td>{safe_text(esp_id)}</td>"
+                f"<td>{safe_text(NODE_NAMES.get(esp_id, 'Unknown'))}</td>"
+                f"<td>{status}</td>"
+                f"</tr>"
+            )
 
-        # Generate relabel rows
-        relabel_rows = ''
+        label_rows = ""
+
+        for label in labels:
+            label_rows += (
+                f"<tr>"
+                f"<td>{safe_text(label['id'])}</td>"
+                f"<td>{safe_text(label['name'])}</td>"
+                f"</tr>"
+            )
+
+        relabel_rows = ""
         modal_payloads = []
 
         for r in relabels:
-            parsed_sensor_data = parse_sensor_data(r.get('sensor_data'))
-            modal_id = f'sensor-modal-{r["id"]}'
+            parsed_sensor_data = parse_sensor_data(r.get("sensor_data"))
+            modal_id = f"sensor-modal-{r['id']}"
 
             modal_payloads.append({
-                'modal_id': modal_id,
-                'rows': parsed_sensor_data
+                "modal_id": modal_id,
+                "rows": parsed_sensor_data,
             })
 
             sensor_button = (
-                f'<button class="secondary-btn" onclick="openSensorModal(\'{modal_id}\')">'
-                f'View ({len(parsed_sensor_data)})'
-                f'</button>'
+                f"<button class=\"secondary-btn\" onclick=\"openSensorModal('{modal_id}')\">"
+                f"View ({len(parsed_sensor_data)})"
+                f"</button>"
             )
 
             relabel_rows += (
-                f'<tr>'
-                f'<td>{safe_text(r["id"])}</td>'
-                f'<td>{safe_text(r.get("created_at", ""))}</td>'
-                f'<td>{safe_text(r.get("node_id", ""))}</td>'
-                f'<td>{safe_text(r.get("original_label", ""))}</td>'
-                f'<td>{safe_text(r.get("new_label", ""))}</td>'
-                f'<td>{sensor_button}</td>'
-                f'</tr>'
+                f"<tr>"
+                f"<td>{safe_text(r['id'])}</td>"
+                f"<td>{safe_text(r.get('created_at', ''))}</td>"
+                f"<td>{safe_text(r.get('node_id', ''))}</td>"
+                f"<td>{safe_text(node_name(r.get('node_id')))}</td>"
+                f"<td>{safe_text(r.get('original_label', ''))}</td>"
+                f"<td>{safe_text(r.get('new_label', ''))}</td>"
+                f"<td>{sensor_button}</td>"
+                f"</tr>"
             )
 
-        modal_html = ''
+        modal_html = ""
+
         for item in modal_payloads:
-            if item['rows']:
-                body_rows = ''.join([
+            if item["rows"]:
+                body_rows = "".join([
                     (
-                        f'<tr>'
-                        f'<td>{safe_text(row["ax"])}</td>'
-                        f'<td>{safe_text(row["ay"])}</td>'
-                        f'<td>{safe_text(row["az"])}</td>'
-                        f'<td class="divider-cell">|</td>'
-                        f'<td>{safe_text(row["gx"])}</td>'
-                        f'<td>{safe_text(row["gy"])}</td>'
-                        f'<td>{safe_text(row["gz"])}</td>'
-                        f'</tr>'
+                        f"<tr>"
+                        f"<td>{safe_text(row['ax'])}</td>"
+                        f"<td>{safe_text(row['ay'])}</td>"
+                        f"<td>{safe_text(row['az'])}</td>"
+                        f"<td class=\"divider-cell\">|</td>"
+                        f"<td>{safe_text(row['gx'])}</td>"
+                        f"<td>{safe_text(row['gy'])}</td>"
+                        f"<td>{safe_text(row['gz'])}</td>"
+                        f"<td class=\"divider-cell\">|</td>"
+                        f"<td>{safe_text(row['mx'])}</td>"
+                        f"<td>{safe_text(row['my'])}</td>"
+                        f"<td>{safe_text(row['mz'])}</td>"
+                        f"</tr>"
                     )
-                    for row in item['rows']
+                    for row in item["rows"]
                 ])
             else:
-                body_rows = '<tr><td colspan="7">No sensor data available</td></tr>'
+                body_rows = "<tr><td colspan=\"11\">No sensor data available</td></tr>"
 
-            modal_html += f'''
-            <div id="{item["modal_id"]}" class="modal-backdrop" onclick="closeIfBackdrop(event, '{item["modal_id"]}')">
+            modal_html += f"""
+            <div id="{item['modal_id']}" class="modal-backdrop" onclick="closeIfBackdrop(event, '{item['modal_id']}')">
               <div class="modal-card">
                 <div class="modal-header">
                   <h3>Sensor Data</h3>
-                  <button class="close-btn" onclick="closeSensorModal('{item["modal_id"]}')">&times;</button>
+                  <button class="close-btn" onclick="closeSensorModal('{item['modal_id']}')">&times;</button>
                 </div>
                 <div class="modal-content">
                   <table>
@@ -184,6 +257,10 @@ def admin_page():
                         <th>gyroX</th>
                         <th>gyroY</th>
                         <th>gyroZ</th>
+                        <th></th>
+                        <th>magX</th>
+                        <th>magY</th>
+                        <th>magZ</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -193,9 +270,9 @@ def admin_page():
                 </div>
               </div>
             </div>
-            '''
+            """
 
-        html_page = f'''<!doctype html>
+        html_page = f"""<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -225,7 +302,6 @@ def admin_page():
       button:hover {{ background: #0d6a31; }}
       .secondary-btn {{ background: #2563eb; }}
       .secondary-btn:hover {{ background: #1d4ed8; }}
-      .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
 
       .modal-backdrop {{
         display: none;
@@ -244,7 +320,7 @@ def admin_page():
 
       .modal-card {{
         background: white;
-        width: min(900px, 95vw);
+        width: min(1100px, 95vw);
         max-height: 85vh;
         overflow: auto;
         border-radius: 12px;
@@ -278,17 +354,26 @@ def admin_page():
       }}
     </style>
   </head>
+
   <body>
     <div class="header">
       <h1>HAR Admin</h1>
       <div class="tip">Health: <span class="pill ok">ok</span></div>
     </div>
-    <div class="tip">Set <code>ADMIN_TOKEN</code> env and append <code>?token=YOUR_TOKEN</code> to protect this page.</div>
+
+    <div class="tip">
+      3-node PAMAP2 setup:
+      <code>1 = Wrist</code>,
+      <code>2 = Chest</code>,
+      <code>3 = Ankle</code>.
+      Set <code>ADMIN_TOKEN</code> and append <code>?token=YOUR_TOKEN</code> to protect this page.
+    </div>
 
     <div class="grid">
       <section class="label-section">
         <h2>Current Label</h2>
         <p><strong>Label:</strong> {safe_text(current_label['name'] if current_label else 'N/A')}</p>
+
         <div class="label-form">
           <input type="text" id="labelInput" placeholder="Enter new label" value="{safe_text(current_label['name'] if current_label else '')}" />
           <button onclick="updateLabel()">Update Label</button>
@@ -308,10 +393,10 @@ def admin_page():
       </section>
 
       <section>
-        <h2>ESP Devices ({len(esps)})</h2>
+        <h2>ESP Devices / Nodes ({len(esps)})</h2>
         <table>
           <thead>
-            <tr><th>ID</th><th>Status</th></tr>
+            <tr><th>ID</th><th>Placement</th><th>Status</th></tr>
           </thead>
           <tbody>
             {esp_rows}
@@ -339,6 +424,7 @@ def admin_page():
               <th>ID</th>
               <th>Created</th>
               <th>Node</th>
+              <th>Placement</th>
               <th>Original</th>
               <th>New</th>
               <th>Sensor Data</th>
@@ -402,8 +488,9 @@ def admin_page():
       }}
     </script>
   </body>
-</html>'''
-        
-        return html_page, 200, {'Content-Type': 'text/html; charset=utf-8'}
+</html>"""
+
+        return html_page, 200, {"Content-Type": "text/html; charset=utf-8"}
+
     except Exception:
-        return jsonify({'message': 'Failed to load admin page'}), 500
+        return jsonify({"message": "Failed to load admin page"}), 500

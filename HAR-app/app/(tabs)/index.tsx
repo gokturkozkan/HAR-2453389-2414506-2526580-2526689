@@ -1,154 +1,200 @@
-import { View, Text, StyleSheet, Image, ActivityIndicator, Modal, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  Pressable,
+  useWindowDimensions,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Pressable } from "react-native";
 import { router } from "expo-router";
 import { useContext, useState, useEffect, useCallback, useMemo } from "react";
-import { useFocusEffect } from '@react-navigation/native';
 import { labelApi } from "@/apis/labelApi";
 import { ConnectionContext } from "../contexts/ConnectionContext";
 
-const handleConnection = () => {
-  router.push("/connect");
+type LabelType = {
+  label: string;
+  image?: string;
+  node_id?: number | null;
 };
 
-type labelType = {
-  label: string;
-  image: string;
-  node_id?: number | null;
-}
-
-const relabelOptions = ["sitting", "standing", "walking", "jumping"];
+const relabelOptions = ["lying", "sitting", "standing", "walking"];
 
 export default function HomeScreen() {
-  const [ loading, setLoading ] = useState<boolean>(false);
-  const [ message, setMessage ] = useState<[string, string] | null>(null);
-  const [ label, setLabel ] = useState<labelType>();
-  const [ isRelabelOpen, setIsRelabelOpen ] = useState<boolean>(false);
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
+
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<[string, string] | null>(null);
+  const [label, setLabel] = useState<LabelType | null>(null);
+  const [isRelabelOpen, setIsRelabelOpen] = useState(false);
+
   const { connection } = useContext(ConnectionContext);
   const { getLabel, sendLabel } = useMemo(() => labelApi(), []);
 
-  console.log("HomeScreen render - connection state:", connection);
-
-  const fetchLabel = useCallback(async() => {
-    if(!connection) return;
-    
-    try {
-      setLoading(true);
-      const data = await getLabel();
-      setLabel(data);
-      setMessage(["success", `Received label: ${data.label}`]);
-    } catch (e: any) {
-      setMessage(["error", e.message]);
-      console.error("Label fetch error:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [connection, getLabel]);
-
-  const handleRelabel = useCallback(async (nextLabel: string) => {
+  const fetchLabel = useCallback(async () => {
     if (!connection) return;
 
     try {
-      setLoading(true);
-      setIsRelabelOpen(false);
-      await sendLabel(nextLabel, label?.node_id);
-      await fetchLabel();
-      setMessage(["success", `Relabeled as: ${nextLabel}`]);
+      const data = await getLabel();
+
+      setLabel((prev) => {
+        if (prev?.label !== data.label) {
+          setMessage(["success", `Current activity: ${data.label}`]);
+        }
+        return data;
+      });
     } catch (e: any) {
       setMessage(["error", e.message]);
-      console.error("Label update error:", e);
-    } finally {
-      setLoading(false);
     }
-  }, [connection, sendLabel, fetchLabel]);
+  }, [connection, getLabel]);
 
   useEffect(() => {
-    if(connection) {
-      console.log("useEffect triggered - fetching label");
+    if (!connection) return;
+
+    fetchLabel();
+
+    const interval = setInterval(() => {
       fetchLabel();
-    }
+    }, 1000);
+
+    return () => clearInterval(interval);
   }, [connection, fetchLabel]);
 
-  // Also refetch when the Home tab gains focus
-  useFocusEffect(
-    useCallback(() => {
-      console.log("Home tab focused - connection:", connection);
-      if (connection) {
-        fetchLabel();
+  const handleRelabel = useCallback(
+    async (nextLabel: string) => {
+      if (!connection) return;
+
+      try {
+        setLoading(true);
+        setIsRelabelOpen(false);
+        await sendLabel(nextLabel, label?.node_id);
+        await fetchLabel();
+        setMessage(["success", `Relabeled as: ${nextLabel}`]);
+      } catch (e: any) {
+        setMessage(["error", e.message]);
+      } finally {
+        setLoading(false);
       }
-    }, [connection, fetchLabel])
+    },
+    [connection, sendLabel, fetchLabel, label?.node_id]
   );
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
-        <View style={styles.inner}>
-          <View style={styles.card}>
-            <Text style={{ marginBottom: 8, color: '#475569' }}>Status: {connection ? 'Connected' : 'Not connected'}</Text>
-            {connection ? ( 
-              <>
-                <Text style={{ marginBottom: 8 }}>Connected</Text>
-                {loading && <ActivityIndicator size="large" color="#1e293b" style={{ marginBottom: 16 }} />}
-                {message && message[0] == "success" && 
-                  <View style={styles.labelContainer}>
-                    <Text style={styles.labelText}>{label?.label}</Text>
-                    {label?.image && (
-                      <Image
-                        source={{ uri: `data:image/png;base64,${label.image}` }}
-                        style={styles.labelImage}
-                      />
-                    )}
-                    <Pressable
-                      style={styles.dropdownButton}
-                      onPress={() => setIsRelabelOpen(true)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.dropdownButtonText}>Relabel</Text>
-                    </Pressable>
-                  </View>
-                }
-                {message && message[0] == "error" && <Text style={styles.error}>{message[1]}</Text>}
-
-                <Modal
-                  visible={isRelabelOpen}
-                  animationType="fade"
-                  transparent
-                  onRequestClose={() => setIsRelabelOpen(false)}
-                >
-                  <View style={styles.modalBackdrop}>
-                    <View style={styles.modalCard}>
-                      <Text style={styles.modalTitle}>Choose a new label</Text>
-                      <ScrollView>
-                        {relabelOptions.map((option) => (
-                          <Pressable
-                            key={option}
-                            style={styles.optionButton}
-                            onPress={() => handleRelabel(option)}
-                          >
-                            <Text style={styles.optionText}>{option}</Text>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                      <Pressable style={styles.cancelButton} onPress={() => setIsRelabelOpen(false)}>
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </Modal>
-              </>
-            ) : (
-              <>
-                <Text style={styles.title}>Get started</Text>
-                <Text>Welcome to the HAR app.</Text>
-                <Pressable style={styles.button} onPress={handleConnection}>
-                  <Text style={styles.buttonText}>Connect</Text>
-                </Pressable>
-              </>
-            )}
-
+      <View style={styles.page}>
+        <View style={[styles.card, isDesktop && styles.cardDesktop]}>
+          <View style={styles.header}>
+            <Text style={styles.eyebrow}>Human Activity Recognition</Text>
+            <Text style={styles.title}>Live Activity Monitor</Text>
+            <Text style={styles.subtitle}>
+              3-node PAMAP2 setup: wrist, chest, and ankle.
+            </Text>
           </View>
+
+          <View style={styles.statusRow}>
+            <View
+              style={[
+                styles.statusDot,
+                connection ? styles.statusDotConnected : styles.statusDotDisconnected,
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {connection ? "Connected to HAR Hub" : "Devices not connected"}
+            </Text>
+          </View>
+
+          {connection ? (
+            <>
+              <View style={styles.activityBox}>
+                {loading && <ActivityIndicator size="large" color="#2563eb" />}
+
+                <Text style={styles.activityLabel}>
+                  {label?.label ?? "Waiting for prediction..."}
+                </Text>
+
+                {label?.image ? (
+                  <Image
+                    source={{ uri: `data:image/png;base64,${label.image}` }}
+                    style={styles.labelImage}
+                  />
+                ) : (
+                  <View style={styles.emptyImageBox}>
+                    <Text style={styles.emptyImageText}>No image</Text>
+                  </View>
+                )}
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => setIsRelabelOpen(true)}
+                  disabled={loading}
+                >
+                  <Text style={styles.primaryButtonText}>Relabel Activity</Text>
+                </Pressable>
+              </View>
+
+              {message?.[0] === "error" && (
+                <Text style={styles.error}>{message[1]}</Text>
+              )}
+            </>
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>Start by connecting devices</Text>
+              <Text style={styles.emptySubtitle}>
+                Make sure wrist, chest, and ankle nodes are running.
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => router.push("/connect")}
+              >
+                <Text style={styles.primaryButtonText}>Go to Connect</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
+
+      <Modal
+        visible={isRelabelOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setIsRelabelOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Choose correct label</Text>
+
+            <ScrollView>
+              {relabelOptions.map((option) => (
+                <Pressable
+                  key={option}
+                  style={styles.optionButton}
+                  onPress={() => handleRelabel(option)}
+                >
+                  <Text style={styles.optionText}>{option}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <Pressable
+              style={styles.cancelButton}
+              onPress={() => setIsRelabelOpen(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -156,153 +202,187 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#97a5cbff", 
+    backgroundColor: "#eef2ff",
   },
-  container: {
+  page: {
     flex: 1,
-  },
-  inner: {
-    flex: 1,
+    padding: 20,
     justifyContent: "center",
-    alignItems: "center", 
-    paddingHorizontal: 24,
+    alignItems: "center",
   },
   card: {
     width: "100%",
-    backgroundColor: "white",
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 5,
+    maxWidth: 520,
+    backgroundColor: "#ffffff",
+    borderRadius: 28,
+    padding: 22,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 6,
   },
-  headerContainer: {
-    alignItems: "center",
-    marginBottom: 20,
+  cardDesktop: {
+    maxWidth: 680,
+    padding: 32,
   },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
+  header: {
+    marginBottom: 22,
+  },
+  eyebrow: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#2563eb",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "700",
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#0f172a",
   },
   subtitle: {
-    marginTop: 6,
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  form: {
-    gap: 12,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "500",
     marginTop: 8,
-    marginBottom: 4,
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
     fontSize: 15,
-    backgroundColor: "#f8fafc",
-    borderColor: "#cbd5e1",
+    color: "#64748b",
+    lineHeight: 22,
   },
-  error: {
-    color: "red",
-    marginTop: 6,
-    fontSize: 13,
-  },
-  labelContainer: {
+  statusRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-  },
-  labelText: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 8,
-    textTransform: "capitalize",
-  },
-  labelImage: {
-    width: 120,
-    height: 120,
-    resizeMode: "contain",
-  },
-  dropdownButton: {
-    marginTop: 12,
+    backgroundColor: "#f8fafc",
     borderRadius: 999,
     paddingVertical: 10,
-    paddingHorizontal: 18,
-    backgroundColor: "#0f766e",
+    paddingHorizontal: 14,
+    marginBottom: 22,
   },
-  dropdownButtonText: {
-    color: "white",
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    marginRight: 8,
+  },
+  statusDotConnected: {
+    backgroundColor: "#22c55e",
+  },
+  statusDotDisconnected: {
+    backgroundColor: "#ef4444",
+  },
+  statusText: {
+    color: "#334155",
+    fontWeight: "600",
+  },
+  activityBox: {
+    alignItems: "center",
+    gap: 14,
+  },
+  activityLabel: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#111827",
+    textTransform: "capitalize",
+    textAlign: "center",
+  },
+  labelImage: {
+    width: 180,
+    height: 180,
+    resizeMode: "contain",
+  },
+  emptyImageBox: {
+    width: 160,
+    height: 160,
+    borderRadius: 24,
+    backgroundColor: "#f1f5f9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyImageText: {
+    color: "#94a3b8",
+    fontWeight: "600",
+  },
+  emptyState: {
+    alignItems: "center",
+    gap: 12,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  emptySubtitle: {
     fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  primaryButton: {
+    marginTop: 8,
+    backgroundColor: "#2563eb",
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    minWidth: 180,
+    alignItems: "center",
+  },
+  pressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  primaryButtonText: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  error: {
+    color: "#dc2626",
+    marginTop: 14,
+    textAlign: "center",
     fontWeight: "600",
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: "rgba(15,23,42,0.45)",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 24,
+    padding: 24,
   },
   modalCard: {
     width: "100%",
-    maxHeight: 380,
+    maxWidth: 420,
+    maxHeight: 420,
     backgroundColor: "white",
-    borderRadius: 14,
-    padding: 16,
-    gap: 10,
+    borderRadius: 24,
+    padding: 18,
   },
   modalTitle: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
     color: "#0f172a",
-    marginBottom: 6,
+    marginBottom: 12,
   },
   optionButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 16,
     backgroundColor: "#f1f5f9",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   optionText: {
-    fontSize: 15,
+    fontSize: 16,
     color: "#0f172a",
     textTransform: "capitalize",
+    fontWeight: "700",
   },
   cancelButton: {
-    marginTop: 2,
-    paddingVertical: 10,
-    borderRadius: 8,
+    marginTop: 4,
+    paddingVertical: 13,
+    borderRadius: 16,
     alignItems: "center",
     backgroundColor: "#e2e8f0",
   },
   cancelButtonText: {
     color: "#1e293b",
-    fontWeight: "600",
-  },
-  button: {
-    marginTop: 16,
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: "center",
-    backgroundColor: "#1e293b", 
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "white",
+    fontWeight: "800",
   },
 });
