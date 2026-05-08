@@ -4,6 +4,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
+from datetime import datetime, timezone
 
 import serial
 
@@ -23,8 +24,9 @@ BAUDRATE = 115200
 TIMEOUT = 0.05
 FRAME_PERIOD = 0.30
 
-WARMUP_SECONDS = 60.0
+WARMUP_SECONDS = float(os.getenv("HAR_WARMUP_SECONDS", "10.0"))
 POLL_SLEEP = 0.03
+WARMUP_STATUS_INTERVAL = 1.0
 
 EARLY_EIO_WINDOW = 2.0
 EARLY_EIO_RETRY_DELAY = 0.25
@@ -33,13 +35,35 @@ BACKOFF_BASE = 0.5
 BACKOFF_MAX = 10.0
 RESET_ERRORS_AFTER_OK_SECONDS = 5.0
 
-WINDOW_SIZE = 50
+WINDOW_SIZE = 200
 PREDICT_EVERY = 10
 
-FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz")
-REQUIRE_ALL_NODES_FOR_FUSION = True
+FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
+REQUIRE_ALL_NODES_FOR_FUSION = os.getenv("HAR_REQUIRE_ALL_NODES", "1") not in ("0", "false", "False")
 
 PREDICT_URL = os.getenv("HAR_PREDICT_URL", "http://127.0.0.1:3000/predict")
+SENSOR_LOG_PATH = os.getenv(
+    "TDMA_SENSOR_LOG_PATH",
+    os.path.join(os.path.dirname(__file__), "HAR-backend", "logs", "tdma_sensor_raw.jsonl"),
+)
+
+
+def write_sensor_log(status, **metadata):
+    try:
+        log_path = os.path.abspath(SENSOR_LOG_PATH)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": status,
+            **metadata,
+        }
+
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(json.dumps(entry, ensure_ascii=False, default=str))
+            log_file.write("\n")
+    except Exception as error:
+        print(f"[WARN] Failed to write TDMA sensor log: {error}", flush=True)
 
 
 # ============================================================
@@ -80,7 +104,13 @@ def open_one(node_id):
 
         return ser
 
-    except Exception:
+    except Exception as error:
+        write_sensor_log(
+            "serial_open_error",
+            node_id=node_id,
+            port=port,
+            error=str(error),
+        )
         return None
 
 
@@ -174,6 +204,12 @@ def request_sample(node_id, serials, health):
 
         if line:
             mark_ok(node_id, health)
+            write_sensor_log(
+                "raw_sample",
+                node_id=node_id,
+                port=NODE_PORTS[node_id],
+                line=line,
+            )
 
         return line
 
@@ -186,6 +222,13 @@ def request_sample(node_id, serials, health):
         else:
             mark_error(node_id, serials, health, early=False)
 
+        write_sensor_log(
+            "sample_error",
+            node_id=node_id,
+            port=NODE_PORTS[node_id],
+            error=repr(e),
+        )
+
         return ""
 
 
@@ -197,8 +240,8 @@ def calibrate_node_sample(sample):
     """
     Keep this as light as possible.
 
-    Since the model is now trained on your own ESP dataset, do NOT force
-    PAMAP2-style offsets here. Only use real axis corrections if needed.
+    The restored PAMAP2 model expects ax, ay, az, gx, gy, gz, mx, my, mz.
+    Only apply real axis corrections if needed.
 
     For now this returns the sample unchanged.
     """
@@ -214,9 +257,9 @@ def parse_frame(line):
     """
     Expected ESP format:
 
-    node_id,t,ax,ay,az,gx,gy,gz
+    node_id,t,ax,ay,az,gx,gy,gz,mx,my,mz
 
-    Extra values after gz are ignored.
+    If a device is still sending only IMU values, magnetometer values default to 0.0.
     """
 
     try:
@@ -238,6 +281,9 @@ def parse_frame(line):
         gx = float(parts[5])
         gy = float(parts[6])
         gz = float(parts[7])
+        mx = float(parts[8]) if len(parts) > 8 else 0.0
+        my = float(parts[9]) if len(parts) > 9 else 0.0
+        mz = float(parts[10]) if len(parts) > 10 else 0.0
 
         return {
             "node_id": node_id,
@@ -248,6 +294,9 @@ def parse_frame(line):
             "gx": gx,
             "gy": gy,
             "gz": gz,
+            "mx": mx,
+            "my": my,
+            "mz": mz,
         }
 
     except Exception:
@@ -276,7 +325,7 @@ def build_fused_timestep(active_nodes, latest):
             continue
 
         timestep["nodes"][str(node_id)] = {
-            key: float(sample[key])
+            key: float(sample.get(key, 0.0))
             for key in FEATURE_KEYS
         }
 
@@ -343,7 +392,7 @@ def post_predict(window_payload):
 def print_table(latest, active_nodes, health, fused_window_len, last_prediction):
     os.system("clear" if os.name != "nt" else "cls")
 
-    print("===== TDMA HAR Dashboard - Own 3-Node Dataset =====")
+    print("===== TDMA HAR Dashboard - PAMAP2 3-Node Dataset =====")
     print("Node 1 = Wrist")
     print("Node 2 = Chest")
     print("Node 3 = Ankle")
@@ -352,7 +401,7 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
     print(f"Last prediction: {last_prediction}")
     print()
 
-    header = "Node | Place | t(ms)  |  ax      ay      az   |  gx      gy      gz   | err | wait"
+    header = "Node | Place | t(ms)  |  ax      ay      az   |  gx      gy      gz   |  mx      my      mz   | err | wait"
     print(header)
     print("-" * len(header))
 
@@ -368,6 +417,7 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
                 f"{node_id:4d} | {NODE_NAMES[node_id]:5s} |  ---   |"
                 f"   ---    ---    --- |"
                 f"   ---    ---    --- |"
+                f"   ---    ---    --- |"
                 f" {h['errors']:3d} | {wait:4.1f}s"
             )
         else:
@@ -375,6 +425,7 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
                 f"{node_id:4d} | {NODE_NAMES[node_id]:5s} | {data['t']:6d} | "
                 f"{data['ax']:6.2f} {data['ay']:6.2f} {data['az']:6.2f} | "
                 f"{data['gx']:6.2f} {data['gy']:6.2f} {data['gz']:6.2f} | "
+                f"{data['mx']:6.2f} {data['my']:6.2f} {data['mz']:6.2f} | "
                 f"{h['errors']:3d} | {wait:4.1f}s"
             )
 
@@ -385,9 +436,11 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
 
 def warmup(active_nodes, serials, latest, health):
     print("\nWaiting for initial data from wrist, chest, and ankle...")
+    print(f"Warmup timeout: {WARMUP_SECONDS:.1f}s. Dashboard starts even if some nodes are missing.")
 
     deadline = time.monotonic() + WARMUP_SECONDS
     got = set()
+    last_status_at = 0.0
 
     while time.monotonic() < deadline and len(got) < len(active_nodes):
         for node_id in active_nodes:
@@ -402,6 +455,24 @@ def warmup(active_nodes, serials, latest, health):
                 latest[node_id] = parsed
                 got.add(node_id)
                 print(f"  Node {node_id} ({NODE_NAMES[node_id]}): first sample received.")
+                write_sensor_log("first_sample", node_id=node_id, sample=parsed)
+
+        now = time.monotonic()
+
+        if now - last_status_at >= WARMUP_STATUS_INTERVAL:
+            missing = [node_id for node_id in active_nodes if node_id not in got]
+            seconds_left = max(0.0, deadline - now)
+            print(
+                f"  Warmup status: got={sorted(got) or '-'} "
+                f"missing={missing or '-'} left={seconds_left:.1f}s"
+            )
+            write_sensor_log(
+                "warmup_status",
+                got=sorted(got),
+                missing=missing,
+                seconds_left=round(seconds_left, 1),
+            )
+            last_status_at = now
 
         time.sleep(POLL_SLEEP)
 
@@ -409,6 +480,8 @@ def warmup(active_nodes, serials, latest, health):
 
     if missing:
         print(f"[WARN] No initial data from nodes: {missing}")
+        print("[WARN] Prediction will wait until all 3 nodes provide samples.")
+        write_sensor_log("warmup_missing_nodes", missing=missing)
 
     print("Starting main loop...\n")
     time.sleep(0.5)
@@ -462,6 +535,7 @@ def main():
                 if parsed is not None and parsed["node_id"] == node_id:
                     parsed = calibrate_node_sample(parsed)
                     latest[node_id] = parsed
+                    write_sensor_log("parsed_sample", node_id=node_id, sample=parsed)
 
             fused_timestep = build_fused_timestep(active_nodes, latest)
 

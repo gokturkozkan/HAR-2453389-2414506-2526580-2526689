@@ -26,8 +26,7 @@ MAX_WAIT_PER_NODE = 25.0
 
 BACKEND_URL = os.getenv("HAR_BACKEND_URL", "http://127.0.0.1:3000")
 
-# PAMAP2 model trained with:
-# 100Hz, 2 second windows = 200 samples
+# Restored PAMAP2 Keras model profile.
 WINDOW_SIZE = 200
 
 PREDICT_MIN_INTERVAL_SECONDS = 1.0
@@ -198,11 +197,11 @@ def parse_frame(line):
 
 # ============================================================
 # Prediction Payload
-# Must match PAMAP2 model:
+# Must match PAMAP2 model input:
 # Node1 Wrist
 # Node2 Chest
 # Node3 Ankle
-# 9 features each = 27 total
+# Backend uses ax, ay, az, gx, gy, gz, mx, my, mz.
 # ============================================================
 
 def predict_combined_window(active_nodes, node_windows, prediction_state):
@@ -212,6 +211,11 @@ def predict_combined_window(active_nodes, node_windows, prediction_state):
     for nid in active_nodes:
         if len(node_windows[nid]) < WINDOW_SIZE:
             return False
+
+    windows_by_node = {
+        str(node_id): list(node_windows[node_id])
+        for node_id in active_nodes
+    }
 
     payload = {
         "node_ids": active_nodes,

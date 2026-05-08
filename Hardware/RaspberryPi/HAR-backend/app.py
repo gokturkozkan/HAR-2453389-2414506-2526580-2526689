@@ -51,6 +51,7 @@ def health():
         "status": "ok",
         "service": "HAR Backend",
         "model": "pamap2_basic_har_model.keras",
+        "model_profile": "pamap2_basic_keras",
         "window_size": 200,
         "nodes": {
             "1": "wrist",

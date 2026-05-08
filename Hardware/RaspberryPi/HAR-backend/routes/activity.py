@@ -1,9 +1,10 @@
 import os
 import copy
+import json
 import joblib
 import numpy as np
 import tensorflow as tf
-from sklearn.preprocessing import LabelEncoder
+from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify
 from database import db_run, db_get
@@ -11,101 +12,73 @@ from database import db_run, db_get
 activity_bp = Blueprint("activity", __name__)
 
 
-class _OrderedClassLabels:
-    """Sklearn-compatible decode-by-index when labels were saved as a plain list or dict."""
-
-    __slots__ = ("classes_",)
-
-    def __init__(self, classes):
-        self.classes_ = np.asarray(classes, dtype=object)
-
-    def inverse_transform(self, y):
-        y = np.asarray(y, dtype=int)
-        return self.classes_[np.reshape(y, -1)].reshape(y.shape)
-
-
-def _parse_label_encoder(raw):
-    if isinstance(raw, LabelEncoder):
-        return raw
-
-    if hasattr(raw, "classes_") and hasattr(raw, "inverse_transform"):
-        return raw
-
-    ordered = None
-
-    if isinstance(raw, dict):
-        vals = list(raw.values())
-
-        if "index_to_activity" in raw and isinstance(raw["index_to_activity"], dict):
-            idx_map = raw["index_to_activity"]
-            ordered = [lbl for _, lbl in sorted(idx_map.items(), key=lambda kv: kv[0])]
-        elif raw and all(isinstance(k, (int, np.integer)) for k in raw.keys()):
-            ordered = [lbl for _, lbl in sorted(raw.items(), key=lambda kv: kv[0])]
-        elif (
-            vals
-            and all(isinstance(v, (int, np.integer)) for v in vals)
-            and len(vals) == len(set(vals))
-        ):
-            ordered = [name for name, _ in sorted(raw.items(), key=lambda kv: kv[1])]
-        else:
-            for key in ("classes_", "classes", "class_names", "labels", "names"):
-                if key in raw:
-                    ordered = list(np.asarray(raw[key]).ravel())
-                    break
-            if ordered is None and len(raw) == 1:
-                only = next(iter(raw.values()))
-                if isinstance(only, (list, tuple, np.ndarray)):
-                    ordered = list(np.asarray(only).ravel())
-
-    elif isinstance(raw, (list, tuple, np.ndarray)):
-        ordered = list(np.asarray(raw).ravel())
-
-    if not ordered:
-        raise TypeError(
-            "own_har_label_encoder.pkl must be a LabelEncoder, a sequence of class names, "
-            f"or a dict of label↔index pairs; got {type(raw)}"
-        )
-
-    return _OrderedClassLabels(ordered)
-
 MODEL = None
-SCALER_METADATA = None
+SCALER = None
 LABEL_ENCODER = None
 
-WINDOW_SIZE = 50
+WINDOW_SIZE = 200
 NODE_IDS = [1, 2, 3]
 COMBINED_KEY = "_combined"
+MODEL_PROFILE = "pamap2_basic_keras"
 
-FEATURES_PER_NODE = ("ax", "ay", "az", "gx", "gy", "gz")
+FEATURES_PER_NODE = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
 
 LATEST_WINDOWS_BY_NODE = {}
 LAST_NODE_ID = None
 
 
+def get_sensor_log_path():
+    configured_path = os.getenv("SENSOR_LOG_PATH")
+
+    if configured_path:
+        return os.path.abspath(configured_path)
+
+    base_dir = os.path.dirname(__file__)
+    return os.path.abspath(os.path.join(base_dir, "..", "logs", "sensor_readings.jsonl"))
+
+
+def write_sensor_debug_log(payload, status, **metadata):
+    try:
+        log_path = get_sensor_log_path()
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": status,
+            "remote_addr": request.remote_addr,
+            "model": MODEL_PROFILE,
+            "window_size": WINDOW_SIZE,
+            "features_per_node": list(FEATURES_PER_NODE),
+            "payload": payload,
+            **metadata,
+        }
+
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(json.dumps(entry, ensure_ascii=False, default=str))
+            log_file.write("\n")
+    except Exception as error:
+        print(f"Failed to write sensor debug log: {error}", flush=True)
+
+
 def load_model():
-    global MODEL, SCALER_METADATA, LABEL_ENCODER
+    global MODEL, SCALER, LABEL_ENCODER
 
     base_dir = os.path.dirname(__file__)
     model_dir = os.path.abspath(os.path.join(base_dir, "..", "..", "model"))
 
-    model_path = os.path.join(model_dir, "own_har_model.keras")
-    scaler_path = os.path.join(model_dir, "own_har_scaler.pkl")
-    label_encoder_path = os.path.join(model_dir, "own_har_label_encoder.pkl")
+    model_path = os.path.join(model_dir, "pamap2_basic_har_model.keras")
+    scaler_path = os.path.join(model_dir, "pamap2_basic_scaler.pkl")
+    label_encoder_path = os.path.join(model_dir, "pamap2_basic_label_encoder.pkl")
 
     print("model_path exists:", os.path.exists(model_path), model_path)
     print("scaler_path exists:", os.path.exists(scaler_path), scaler_path)
     print("label_encoder_path exists:", os.path.exists(label_encoder_path), label_encoder_path)
 
     MODEL = tf.keras.models.load_model(model_path)
+    SCALER = joblib.load(scaler_path)
+    LABEL_ENCODER = joblib.load(label_encoder_path)
 
-    # This file is NOT a real scaler in your case.
-    # It only contains metadata like window_size, nodes, classes, etc.
-    SCALER_METADATA = joblib.load(scaler_path)
-    print("Loaded scaler metadata:", SCALER_METADATA)
-
-    LABEL_ENCODER = _parse_label_encoder(joblib.load(label_encoder_path))
-
-    print("✓ Own HAR model loaded")
+    print("PAMAP2 HAR model loaded")
     print("Model input shape:", MODEL.input_shape)
     print("Classes:", list(LABEL_ENCODER.classes_))
 
@@ -140,12 +113,11 @@ def validate_windows_by_node(windows_by_node):
     normalized = {}
 
     for node_id in NODE_IDS:
-        key = str(node_id)
+        readings = windows_by_node.get(str(node_id), windows_by_node.get(node_id))
 
-        if key not in windows_by_node:
+        if readings is None:
             raise ValueError(f"Missing node {node_id} window")
 
-        readings = windows_by_node[key]
         validate_node_readings(readings, node_id)
         normalized[node_id] = readings
 
@@ -155,11 +127,11 @@ def validate_windows_by_node(windows_by_node):
 def build_model_input(windows_by_node):
     rows = []
 
-    for t in range(WINDOW_SIZE):
+    for timestep in range(WINDOW_SIZE):
         row = []
 
         for node_id in NODE_IDS:
-            reading = windows_by_node[node_id][t]
+            reading = windows_by_node[node_id][timestep]
 
             for feature in FEATURES_PER_NODE:
                 row.append(float(reading[feature]))
@@ -168,14 +140,13 @@ def build_model_input(windows_by_node):
 
     data_array = np.array(rows, dtype=np.float32)
 
-    print("INPUT SHAPE BEFORE MODEL:", data_array.shape, flush=True)
+    print("INPUT SHAPE BEFORE SCALER:", data_array.shape, flush=True)
+    print("INPUT FIRST ROW:", data_array[0], flush=True)
+    print("INPUT LAST ROW:", data_array[-1], flush=True)
 
-    expected_model_shape = MODEL.input_shape
-
-    # Expected model shape should usually be:
-    # (None, 50, 18)
-    expected_timesteps = expected_model_shape[1]
-    expected_features = expected_model_shape[2]
+    expected_shape = MODEL.input_shape
+    expected_timesteps = expected_shape[1]
+    expected_features = expected_shape[2]
 
     if data_array.shape[0] != expected_timesteps:
         raise ValueError(
@@ -186,37 +157,32 @@ def build_model_input(windows_by_node):
     if data_array.shape[1] != expected_features:
         raise ValueError(
             f"Feature mismatch. Backend built {data_array.shape[1]} features, "
-            f"but model expects {expected_features}. "
-            f"Expected 3 nodes x 6 features = 18."
+            f"but model expects {expected_features}."
         )
 
-    # No scaler transform is applied because own_har_scaler.pkl is metadata only.
-    print("No scaler transform applied. own_har_scaler.pkl is metadata only.", flush=True)
-
+    data_array = SCALER.transform(data_array)
     data_array = np.nan_to_num(
         data_array,
         nan=0.0,
         posinf=0.0,
-        neginf=0.0
+        neginf=0.0,
     )
-
     data_array = np.clip(data_array, -10.0, 10.0)
 
     model_input = np.expand_dims(data_array, axis=0)
 
-    print("MODEL INPUT SHAPE:", model_input.shape, "EXPECTED:", expected_model_shape, flush=True)
+    print("MODEL INPUT SHAPE:", model_input.shape, "EXPECTED:", expected_shape, flush=True)
 
     return model_input
 
 
 def predict_activity(windows_by_node):
-    if MODEL is None or LABEL_ENCODER is None:
-        raise RuntimeError("Model or label encoder not loaded")
+    if MODEL is None or SCALER is None or LABEL_ENCODER is None:
+        raise RuntimeError("Model, scaler, or label encoder not loaded")
 
     model_input = build_model_input(windows_by_node)
 
     probs = MODEL.predict(model_input, verbose=0)[0]
-
     prob_map = {
         str(label): float(prob)
         for label, prob in zip(LABEL_ENCODER.classes_, probs)
@@ -229,7 +195,7 @@ def predict_activity(windows_by_node):
     confidence = float(probs[activity_idx])
     activity = LABEL_ENCODER.inverse_transform([activity_idx])[0]
 
-    return activity, confidence
+    return str(activity), confidence
 
 
 def upsert_current_label(label):
@@ -305,18 +271,31 @@ def get_all_latest_node_windows():
 
 @activity_bp.route("/predict", methods=["POST"])
 def predict_endpoint():
+    data = None
+    windows_by_node = None
+
     try:
         data = request.get_json(silent=True)
 
         if data is None:
+            write_sensor_debug_log(
+                None,
+                "invalid_json",
+                error="Invalid JSON body",
+            )
             return jsonify({"error": "Invalid JSON body"}), 400
 
         windows_by_node = data.get("windows_by_node")
 
         if windows_by_node is None:
+            write_sensor_debug_log(
+                data,
+                "missing_windows_by_node",
+                received_keys=list(data.keys()),
+            )
             return jsonify({
-                "error": "windows_by_node is required",
-                "received_keys": list(data.keys())
+                "error": "windows_by_node is required for the PAMAP2 model",
+                "received_keys": list(data.keys()),
             }), 400
 
         validated_windows = validate_windows_by_node(windows_by_node)
@@ -330,21 +309,40 @@ def predict_endpoint():
             remember_latest_window(node_id, node_readings, activity)
             mark_esp_connected_if_known(node_id)
 
+        write_sensor_debug_log(
+            validated_windows,
+            "success",
+            used_node_ids=NODE_IDS,
+            activity=activity,
+            confidence=round(confidence, 4),
+        )
+
         return jsonify({
             "used_node_ids": NODE_IDS,
             "activity": activity,
             "confidence": round(confidence, 4),
-            "fusion": "own_3_node_feature_concat",
+            "fusion": "pamap2_3_node_feature_concat",
+            "model": MODEL_PROFILE,
             "window_size": WINDOW_SIZE,
-            "features_per_node": list(FEATURES_PER_NODE)
+            "features_per_node": list(FEATURES_PER_NODE),
         })
 
     except ValueError as e:
         print("PREDICT 400:", str(e), flush=True)
+        write_sensor_debug_log(
+            windows_by_node if windows_by_node is not None else data,
+            "validation_error",
+            error=str(e),
+        )
         return jsonify({"error": str(e)}), 400
 
     except Exception as e:
         import traceback
         print("PREDICT ERROR:", repr(e), flush=True)
         traceback.print_exc()
+        write_sensor_debug_log(
+            windows_by_node if windows_by_node is not None else data,
+            "prediction_error",
+            error=str(e),
+        )
         return jsonify({"error": str(e)}), 500

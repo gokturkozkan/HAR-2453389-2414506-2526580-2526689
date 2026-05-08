@@ -6,7 +6,7 @@ from pathlib import Path
 db_path = os.getenv("DB_PATH", "./har.db")
 db_connection = None
 
-NODE_IDS = [1, 2, 3]
+NODE_IDS = list(range(1, 8))
 
 
 def get_database():
@@ -85,7 +85,7 @@ def init_database():
 
 def ensure_labels_sensor_columns():
     """
-    Keeps labels table compatible with the 3-node HAR setup.
+    Keeps labels table compatible with all supported ESP slots.
 
     esp1 = wrist / hand
     esp2 = chest
@@ -117,7 +117,7 @@ def ensure_relabels_data_columns():
 
 def seed_esp_devices():
     """
-    Creates only the 3 ESP device rows used by the current system.
+    Creates ESP device rows for all supported slots.
 
     Node 1 = wrist / hand
     Node 2 = chest

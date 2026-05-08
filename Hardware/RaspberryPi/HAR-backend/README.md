@@ -4,6 +4,56 @@ Backend server for the HAR (Human Activity Recognition) mobile application.
 
 Built with Flask (Python).
 
+## Current Run Steps
+
+From the Raspberry Pi project root:
+
+```bash
+cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+In another terminal, start the sensor hub:
+
+```bash
+cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi
+python tdma_hub.py
+```
+
+Or use the Bluetooth GUI hub:
+
+```bash
+cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi
+python tdma_hub_gui.py
+```
+
+In the GUI, connect or reconnect Node 1, Node 2, and Node 3 individually. The serial connection stays open after the first probe. Full polling and prediction only start after pressing `Start Receiving Data`.
+
+For a mock sensor run instead of real serial devices:
+
+```bash
+cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi
+HAR_BACKEND_URL=http://127.0.0.1:3000 MOCK_RUN_SECONDS=60 python tdma_formatted_mock.py
+```
+
+The PAMAP2 backend expects `windows_by_node` with nodes `1`, `2`, and `3`, each containing 200 readings with `ax`, `ay`, `az`, `gx`, `gy`, `gz`, `mx`, `my`, and `mz`.
+
+Sensor payloads sent to `/predict` are saved as JSON Lines at:
+
+```bash
+HAR-backend/logs/sensor_readings.jsonl
+```
+
+To inspect the latest entries:
+
+```bash
+tail -n 5 logs/sensor_readings.jsonl
+```
+
+Set `SENSOR_LOG_PATH=/some/path/sensor_readings.jsonl` before `python app.py` to write the debug log somewhere else.
+
 ## Features
 
 - User authentication (login/register) with JWT tokens
