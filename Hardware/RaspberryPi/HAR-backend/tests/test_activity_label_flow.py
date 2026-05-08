@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import database
+import routes.activity as activity
 from app import app
 from database import db_get, db_run
 
@@ -31,6 +32,8 @@ class ActivityLabelFlowTests(unittest.TestCase):
         database.close_database()
         database.db_path = self.tmp.name
         database.init_database()
+        activity.LATEST_WINDOWS_BY_NODE.clear()
+        activity.LAST_NODE_ID = None
         self._seed_test_images()
 
         self.client = app.test_client()
@@ -90,6 +93,71 @@ class ActivityLabelFlowTests(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
         body = res.get_json()
         self.assertIn("missing 'gz'", body["error"])
+
+    def test_predict_rejects_wrong_window_length(self):
+        for size in (31, 33):
+            with self.subTest(size=size):
+                res = self.client.post(
+                    "/predict",
+                    json={"node_id": 1, "readings": build_window(size=size)},
+                )
+
+                self.assertEqual(res.status_code, 400)
+                body = res.get_json()
+                self.assertIn("Exactly 32 readings are required", body["error"])
+
+    def test_predict_rejects_non_numeric_sensor_payload(self):
+        bad_window = build_window()
+        bad_window[4]["ax"] = "not-a-number"
+
+        res = self.client.post("/predict", json={"node_id": 1, "readings": bad_window})
+
+        self.assertEqual(res.status_code, 400)
+        body = res.get_json()
+        self.assertIn("non-numeric 'ax'", body["error"])
+
+    def test_predict_accepts_multi_node_windows_and_records_fusion_metadata(self):
+        windows_by_node = {
+            "2": build_window(),
+            "4": [
+                {
+                    "ax": 1.1 + i * 0.01,
+                    "ay": 1.2 + i * 0.01,
+                    "az": 8.7,
+                    "gx": 0.11,
+                    "gy": 0.12,
+                    "gz": 0.13,
+                }
+                for i in range(32)
+            ],
+        }
+
+        with patch("routes.activity.predict_activity", return_value=("walking", 0.87)) as predict_mock:
+            res = self.client.post("/predict", json={"windows_by_node": windows_by_node})
+
+        self.assertEqual(res.status_code, 200)
+        body = res.get_json()
+        self.assertEqual(body["activity"], "walking")
+        self.assertEqual(body["used_node_ids"], [2, 4])
+        self.assertEqual(body["fusion"], "average_per_timestep")
+
+        fused_window = predict_mock.call_args.args[0]
+        self.assertEqual(len(fused_window), 32)
+        self.assertAlmostEqual(fused_window[0]["ax"], 0.6)
+        self.assertAlmostEqual(fused_window[0]["ay"], 0.7)
+
+        label_res = self.client.get("/label")
+        self.assertEqual(label_res.status_code, 200)
+        self.assertEqual(label_res.get_json()["label"], "walking")
+
+    def test_predict_marks_seen_esp_device_as_connected(self):
+        with patch("routes.activity.predict_activity", return_value=("standing", 0.91)):
+            res = self.client.post("/predict", json={"node_id": 3, "readings": build_window()})
+
+        self.assertEqual(res.status_code, 200)
+        status_res = self.client.get("/esp-status?id=3")
+        self.assertEqual(status_res.status_code, 200)
+        self.assertEqual(status_res.get_json(), {"id": 3, "isConnected": True})
 
     def test_manual_label_post_is_returned_by_get_label(self):
         payload = {"node_id": 7, "readings": build_window()}
@@ -153,6 +221,30 @@ class ActivityLabelFlowTests(unittest.TestCase):
         self.assertIsNone(labels_row["esp5"])
         self.assertIsNone(labels_row["esp6"])
         self.assertIsNone(labels_row["esp7"])
+
+    def test_empty_label_recovers_after_new_prediction(self):
+        db_run("UPDATE labels SET name = ? WHERE id = 1", [""])
+        empty_res = self.client.get("/label")
+        self.assertEqual(empty_res.status_code, 404)
+
+        with patch("routes.activity.predict_activity", return_value=("sitting", 0.84)):
+            predict_res = self.client.post("/predict", json={"node_id": 1, "readings": build_window()})
+
+        self.assertEqual(predict_res.status_code, 200)
+        label_res = self.client.get("/label")
+        self.assertEqual(label_res.status_code, 200)
+        self.assertEqual(label_res.get_json()["label"], "sitting")
+
+    def test_label_survives_database_reopen(self):
+        with patch("routes.activity.predict_activity", return_value=("standing", 0.91)):
+            predict_res = self.client.post("/predict", json={"node_id": 1, "readings": build_window()})
+        self.assertEqual(predict_res.status_code, 200)
+
+        database.close_database()
+        database.init_database()
+
+        row = db_get("SELECT name FROM labels WHERE id = 1")
+        self.assertEqual(row["name"], "standing")
 
 
 if __name__ == "__main__":
