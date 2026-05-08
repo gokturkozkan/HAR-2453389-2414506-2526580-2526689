@@ -8,7 +8,7 @@ from collections import deque
 import serial
 
 NODE_PORTS = {
-    1: "/dev/rfcomm0",  # Wrist / hand
+    1: "/dev/rfcomm0",  # Wrist
     2: "/dev/rfcomm1",  # Chest
     3: "/dev/rfcomm2",  # Ankle
 }
@@ -33,14 +33,14 @@ BACKOFF_BASE = 0.5
 BACKOFF_MAX = 10.0
 RESET_ERRORS_AFTER_OK_SECONDS = 5.0
 
-# PAMAP2 training used 100Hz, 2 seconds = 200 samples
-WINDOW_SIZE = 200
-PREDICT_EVERY = 20
+WINDOW_SIZE = 50
+PREDICT_EVERY = 10
 
-FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
+FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz")
 REQUIRE_ALL_NODES_FOR_FUSION = True
 
 PREDICT_URL = os.getenv("HAR_PREDICT_URL", "http://127.0.0.1:3000/predict")
+
 
 # ============================================================
 # Serial Connection Utilities
@@ -61,17 +61,28 @@ def close_one(ser):
 
 def open_one(node_id):
     port = NODE_PORTS[node_id]
+
     try:
-        ser = serial.Serial(port, BAUDRATE, timeout=TIMEOUT, write_timeout=TIMEOUT)
+        ser = serial.Serial(
+            port,
+            BAUDRATE,
+            timeout=TIMEOUT,
+            write_timeout=TIMEOUT
+        )
+
         time.sleep(0.15)
+
         try:
             ser.reset_input_buffer()
             ser.reset_output_buffer()
         except Exception:
             pass
+
         return ser
+
     except Exception:
         return None
+
 
 # ============================================================
 # Node Health / Auto Reconnect Logic
@@ -79,6 +90,7 @@ def open_one(node_id):
 
 def make_health(active_nodes):
     now = time.monotonic()
+
     return {
         nid: {
             "errors": 0,
@@ -124,6 +136,7 @@ def try_reconnect(node_id, serials, health):
         return False
 
     ser = serials.get(node_id)
+
     if ser is not None and getattr(ser, "is_open", False):
         return True
 
@@ -136,7 +149,9 @@ def try_reconnect(node_id, serials, health):
     serials[node_id] = ser
     h["opened_at"] = now
     h["next_try"] = now
+
     return True
+
 
 # ============================================================
 # TDMA Sensor Polling / Sample Requests
@@ -173,6 +188,24 @@ def request_sample(node_id, serials, health):
 
         return ""
 
+
+# ============================================================
+# Calibration
+# ============================================================
+
+def calibrate_node_sample(sample):
+    """
+    Keep this as light as possible.
+
+    Since the model is now trained on your own ESP dataset, do NOT force
+    PAMAP2-style offsets here. Only use real axis corrections if needed.
+
+    For now this returns the sample unchanged.
+    """
+
+    return sample
+
+
 # ============================================================
 # Sensor Data Parsing
 # ============================================================
@@ -181,14 +214,11 @@ def parse_frame(line):
     """
     Expected ESP format:
 
-    node_id,t,ax,ay,az,gx,gy,gz,mx,my,mz
-
-    If your ESP currently sends only:
     node_id,t,ax,ay,az,gx,gy,gz
 
-    then mx/my/mz are filled as 0.0.
-    But for best PAMAP2 compatibility, send magnetometer too.
+    Extra values after gz are ignored.
     """
+
     try:
         parts = line.split(",")
 
@@ -200,14 +230,14 @@ def parse_frame(line):
         if node_id not in NODE_PORTS:
             return None
 
-        t = int(parts[1])
+        t = int(float(parts[1]))
 
-        ax, ay, az = map(float, parts[2:5])
-        gx, gy, gz = map(float, parts[5:8])
-
-        mx = float(parts[8]) if len(parts) > 8 else 0.0
-        my = float(parts[9]) if len(parts) > 9 else 0.0
-        mz = float(parts[10]) if len(parts) > 10 else 0.0
+        ax = float(parts[2])
+        ay = float(parts[3])
+        az = float(parts[4])
+        gx = float(parts[5])
+        gy = float(parts[6])
+        gz = float(parts[7])
 
         return {
             "node_id": node_id,
@@ -218,17 +248,14 @@ def parse_frame(line):
             "gx": gx,
             "gy": gy,
             "gz": gz,
-            "mx": mx,
-            "my": my,
-            "mz": mz,
         }
 
     except Exception:
         return None
 
+
 # ============================================================
 # Multi-Node Feature Fusion
-# Combines Wrist + Chest + Ankle into one timestep
 # ============================================================
 
 def build_fused_timestep(active_nodes, latest):
@@ -241,39 +268,48 @@ def build_fused_timestep(active_nodes, latest):
             if REQUIRE_ALL_NODES_FOR_FUSION:
                 return None
 
-            timestep["nodes"][str(node_id)] = {key: 0.0 for key in FEATURE_KEYS}
+            timestep["nodes"][str(node_id)] = {
+                key: 0.0
+                for key in FEATURE_KEYS
+            }
+
             continue
 
         timestep["nodes"][str(node_id)] = {
-            key: sample[key]
+            key: float(sample[key])
             for key in FEATURE_KEYS
         }
 
     return timestep
 
+
 # ============================================================
 # HAR Model Prediction API
-# Sends window to backend model in /model
 # ============================================================
 
 def post_predict(window_payload):
     payload = {
-        "node_ids": [1, 2, 3],
         "windows_by_node": {
             "1": [],
             "2": [],
             "3": [],
-        },
-        "model_path": "model/pamap2_basic_har_model.keras",
-        "scaler_path": "model/pamap2_basic_scaler.pkl",
-        "label_encoder_path": "model/pamap2_basic_label_encoder.pkl",
+        }
     }
 
     for timestep in window_payload:
         nodes = timestep["nodes"]
 
-        for node_id in ["1", "2", "3"]:
+        for node_id in ("1", "2", "3"):
+            if node_id not in nodes:
+                return None, f"Missing node {node_id} in fused timestep"
+
             payload["windows_by_node"][node_id].append(nodes[node_id])
+
+    for node_id in ("1", "2", "3"):
+        count = len(payload["windows_by_node"][node_id])
+
+        if count != WINDOW_SIZE:
+            return None, f"Node {node_id} payload has {count} rows, expected {WINDOW_SIZE}"
 
     body = json.dumps(payload).encode("utf-8")
 
@@ -289,21 +325,26 @@ def post_predict(window_payload):
             raw = response.read().decode("utf-8", errors="ignore")
             return json.loads(raw) if raw else {}, None
 
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="ignore")
+        return None, f"HTTP {exc.code}: {error_body}"
+
     except urllib.error.URLError as exc:
         return None, str(exc)
 
     except Exception as exc:
         return None, str(exc)
 
+
 # ============================================================
 # Console Dashboard Output
 # ============================================================
 
 def print_table(latest, active_nodes, health, fused_window_len, last_prediction):
-    os.system("clear")
+    os.system("clear" if os.name != "nt" else "cls")
 
-    print("===== TDMA HAR Dashboard - 3 Node PAMAP2 Setup =====")
-    print("Node 1 = Wrist / Hand")
+    print("===== TDMA HAR Dashboard - Own 3-Node Dataset =====")
+    print("Node 1 = Wrist")
     print("Node 2 = Chest")
     print("Node 3 = Ankle")
     print()
@@ -311,7 +352,7 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
     print(f"Last prediction: {last_prediction}")
     print()
 
-    header = "Node | Place | t(ms)  |  ax      ay      az   |  gx      gy      gz   |  mx      my      mz   | err | wait"
+    header = "Node | Place | t(ms)  |  ax      ay      az   |  gx      gy      gz   | err | wait"
     print(header)
     print("-" * len(header))
 
@@ -327,7 +368,6 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
                 f"{node_id:4d} | {NODE_NAMES[node_id]:5s} |  ---   |"
                 f"   ---    ---    --- |"
                 f"   ---    ---    --- |"
-                f"   ---    ---    --- |"
                 f" {h['errors']:3d} | {wait:4.1f}s"
             )
         else:
@@ -335,17 +375,17 @@ def print_table(latest, active_nodes, health, fused_window_len, last_prediction)
                 f"{node_id:4d} | {NODE_NAMES[node_id]:5s} | {data['t']:6d} | "
                 f"{data['ax']:6.2f} {data['ay']:6.2f} {data['az']:6.2f} | "
                 f"{data['gx']:6.2f} {data['gy']:6.2f} {data['gz']:6.2f} | "
-                f"{data['mx']:6.2f} {data['my']:6.2f} {data['mz']:6.2f} | "
                 f"{h['errors']:3d} | {wait:4.1f}s"
             )
 
+
 # ============================================================
 # Initial Warmup Phase
-# Waits for first samples from all nodes
 # ============================================================
 
 def warmup(active_nodes, serials, latest, health):
     print("\nWaiting for initial data from wrist, chest, and ankle...")
+
     deadline = time.monotonic() + WARMUP_SECONDS
     got = set()
 
@@ -358,6 +398,7 @@ def warmup(active_nodes, serials, latest, health):
             parsed = parse_frame(line)
 
             if parsed is not None and parsed["node_id"] == node_id:
+                parsed = calibrate_node_sample(parsed)
                 latest[node_id] = parsed
                 got.add(node_id)
                 print(f"  Node {node_id} ({NODE_NAMES[node_id]}): first sample received.")
@@ -372,16 +413,16 @@ def warmup(active_nodes, serials, latest, health):
     print("Starting main loop...\n")
     time.sleep(0.5)
 
+
 # ============================================================
 # Main TDMA Runtime Loop
-# Poll nodes -> Build window -> Predict -> Display
 # ============================================================
 
 def main():
     active_nodes = [1, 2, 3]
 
-    print("Using fixed 3-node PAMAP2 layout:")
-    print("1 = Wrist / Hand")
+    print("Using fixed 3-node layout:")
+    print("1 = Wrist")
     print("2 = Chest")
     print("3 = Ankle")
 
@@ -402,7 +443,6 @@ def main():
     try:
         while True:
             frame_start = time.perf_counter()
-
             slot_period = FRAME_PERIOD / len(active_nodes)
 
             for slot_index, node_id in enumerate(active_nodes):
@@ -420,6 +460,7 @@ def main():
                 parsed = parse_frame(line)
 
                 if parsed is not None and parsed["node_id"] == node_id:
+                    parsed = calibrate_node_sample(parsed)
                     latest[node_id] = parsed
 
             fused_timestep = build_fused_timestep(active_nodes, latest)
@@ -434,6 +475,7 @@ def main():
 
                 if err:
                     last_prediction = f"predict error: {err}"
+                    print(last_prediction)
                 else:
                     activity = (
                         response.get("activity")
@@ -442,7 +484,7 @@ def main():
                         or "unknown"
                     )
 
-                    confidence = response.get("confidence", None)
+                    confidence = response.get("confidence")
 
                     if confidence is not None:
                         last_prediction = f"{activity} ({confidence})"

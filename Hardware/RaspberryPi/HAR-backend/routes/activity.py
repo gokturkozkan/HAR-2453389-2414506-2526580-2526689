@@ -3,45 +3,111 @@ import copy
 import joblib
 import numpy as np
 import tensorflow as tf
+from sklearn.preprocessing import LabelEncoder
 
 from flask import Blueprint, request, jsonify
 from database import db_run, db_get
 
 activity_bp = Blueprint("activity", __name__)
 
+
+class _OrderedClassLabels:
+    """Sklearn-compatible decode-by-index when labels were saved as a plain list or dict."""
+
+    __slots__ = ("classes_",)
+
+    def __init__(self, classes):
+        self.classes_ = np.asarray(classes, dtype=object)
+
+    def inverse_transform(self, y):
+        y = np.asarray(y, dtype=int)
+        return self.classes_[np.reshape(y, -1)].reshape(y.shape)
+
+
+def _parse_label_encoder(raw):
+    if isinstance(raw, LabelEncoder):
+        return raw
+
+    if hasattr(raw, "classes_") and hasattr(raw, "inverse_transform"):
+        return raw
+
+    ordered = None
+
+    if isinstance(raw, dict):
+        vals = list(raw.values())
+
+        if "index_to_activity" in raw and isinstance(raw["index_to_activity"], dict):
+            idx_map = raw["index_to_activity"]
+            ordered = [lbl for _, lbl in sorted(idx_map.items(), key=lambda kv: kv[0])]
+        elif raw and all(isinstance(k, (int, np.integer)) for k in raw.keys()):
+            ordered = [lbl for _, lbl in sorted(raw.items(), key=lambda kv: kv[0])]
+        elif (
+            vals
+            and all(isinstance(v, (int, np.integer)) for v in vals)
+            and len(vals) == len(set(vals))
+        ):
+            ordered = [name for name, _ in sorted(raw.items(), key=lambda kv: kv[1])]
+        else:
+            for key in ("classes_", "classes", "class_names", "labels", "names"):
+                if key in raw:
+                    ordered = list(np.asarray(raw[key]).ravel())
+                    break
+            if ordered is None and len(raw) == 1:
+                only = next(iter(raw.values()))
+                if isinstance(only, (list, tuple, np.ndarray)):
+                    ordered = list(np.asarray(only).ravel())
+
+    elif isinstance(raw, (list, tuple, np.ndarray)):
+        ordered = list(np.asarray(raw).ravel())
+
+    if not ordered:
+        raise TypeError(
+            "own_har_label_encoder.pkl must be a LabelEncoder, a sequence of class names, "
+            f"or a dict of label↔index pairs; got {type(raw)}"
+        )
+
+    return _OrderedClassLabels(ordered)
+
 MODEL = None
-SCALER = None
+SCALER_METADATA = None
 LABEL_ENCODER = None
 
-WINDOW_SIZE = 200
+WINDOW_SIZE = 50
 NODE_IDS = [1, 2, 3]
 COMBINED_KEY = "_combined"
 
-FEATURES_PER_NODE = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
+FEATURES_PER_NODE = ("ax", "ay", "az", "gx", "gy", "gz")
 
 LATEST_WINDOWS_BY_NODE = {}
 LAST_NODE_ID = None
 
 
 def load_model():
-    global MODEL, SCALER, LABEL_ENCODER
+    global MODEL, SCALER_METADATA, LABEL_ENCODER
 
     base_dir = os.path.dirname(__file__)
     model_dir = os.path.abspath(os.path.join(base_dir, "..", "..", "model"))
 
-    model_path = os.path.join(model_dir, "pamap2_basic_har_model.keras")
-    scaler_path = os.path.join(model_dir, "pamap2_basic_scaler.pkl")
-    label_encoder_path = os.path.join(model_dir, "pamap2_basic_label_encoder.pkl")
+    model_path = os.path.join(model_dir, "own_har_model.keras")
+    scaler_path = os.path.join(model_dir, "own_har_scaler.pkl")
+    label_encoder_path = os.path.join(model_dir, "own_har_label_encoder.pkl")
 
     print("model_path exists:", os.path.exists(model_path), model_path)
     print("scaler_path exists:", os.path.exists(scaler_path), scaler_path)
     print("label_encoder_path exists:", os.path.exists(label_encoder_path), label_encoder_path)
 
     MODEL = tf.keras.models.load_model(model_path)
-    SCALER = joblib.load(scaler_path)
-    LABEL_ENCODER = joblib.load(label_encoder_path)
 
-    print("✓ PAMAP2 HAR model loaded")
+    # This file is NOT a real scaler in your case.
+    # It only contains metadata like window_size, nodes, classes, etc.
+    SCALER_METADATA = joblib.load(scaler_path)
+    print("Loaded scaler metadata:", SCALER_METADATA)
+
+    LABEL_ENCODER = _parse_label_encoder(joblib.load(label_encoder_path))
+
+    print("✓ Own HAR model loaded")
+    print("Model input shape:", MODEL.input_shape)
+    print("Classes:", list(LABEL_ENCODER.classes_))
 
 
 def validate_node_readings(readings, node_id):
@@ -49,7 +115,9 @@ def validate_node_readings(readings, node_id):
         raise ValueError(f"Node {node_id} readings must be a list")
 
     if len(readings) != WINDOW_SIZE:
-        raise ValueError(f"Node {node_id} must have exactly {WINDOW_SIZE} readings")
+        raise ValueError(
+            f"Node {node_id} must have exactly {WINDOW_SIZE} readings, got {len(readings)}"
+        )
 
     for i, reading in enumerate(readings):
         if not isinstance(reading, dict):
@@ -100,20 +168,50 @@ def build_model_input(windows_by_node):
 
     data_array = np.array(rows, dtype=np.float32)
 
-    print("INPUT SHAPE BEFORE SCALER:", data_array.shape, flush=True)
-    print("INPUT FIRST ROW:", data_array[0], flush=True)
-    print("INPUT LAST ROW:", data_array[-1], flush=True)
+    print("INPUT SHAPE BEFORE MODEL:", data_array.shape, flush=True)
 
-    data_array = SCALER.transform(data_array)
-    data_array = np.nan_to_num(data_array, nan=0.0, posinf=0.0, neginf=0.0)
+    expected_model_shape = MODEL.input_shape
+
+    # Expected model shape should usually be:
+    # (None, 50, 18)
+    expected_timesteps = expected_model_shape[1]
+    expected_features = expected_model_shape[2]
+
+    if data_array.shape[0] != expected_timesteps:
+        raise ValueError(
+            f"Window size mismatch. Backend built {data_array.shape[0]} timesteps, "
+            f"but model expects {expected_timesteps}."
+        )
+
+    if data_array.shape[1] != expected_features:
+        raise ValueError(
+            f"Feature mismatch. Backend built {data_array.shape[1]} features, "
+            f"but model expects {expected_features}. "
+            f"Expected 3 nodes x 6 features = 18."
+        )
+
+    # No scaler transform is applied because own_har_scaler.pkl is metadata only.
+    print("No scaler transform applied. own_har_scaler.pkl is metadata only.", flush=True)
+
+    data_array = np.nan_to_num(
+        data_array,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0
+    )
+
     data_array = np.clip(data_array, -10.0, 10.0)
 
-    return np.expand_dims(data_array, axis=0)
+    model_input = np.expand_dims(data_array, axis=0)
+
+    print("MODEL INPUT SHAPE:", model_input.shape, "EXPECTED:", expected_model_shape, flush=True)
+
+    return model_input
 
 
 def predict_activity(windows_by_node):
-    if MODEL is None or SCALER is None or LABEL_ENCODER is None:
-        raise RuntimeError("Model, scaler, or label encoder not loaded")
+    if MODEL is None or LABEL_ENCODER is None:
+        raise RuntimeError("Model or label encoder not loaded")
 
     model_input = build_model_input(windows_by_node)
 
@@ -208,19 +306,24 @@ def get_all_latest_node_windows():
 @activity_bp.route("/predict", methods=["POST"])
 def predict_endpoint():
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True)
+
+        if data is None:
+            return jsonify({"error": "Invalid JSON body"}), 400
 
         windows_by_node = data.get("windows_by_node")
 
         if windows_by_node is None:
-            return jsonify({"error": "windows_by_node is required"}), 400
+            return jsonify({
+                "error": "windows_by_node is required",
+                "received_keys": list(data.keys())
+            }), 400
 
         validated_windows = validate_windows_by_node(windows_by_node)
 
         activity, confidence = predict_activity(validated_windows)
 
         upsert_current_label(activity)
-
         remember_latest_combined_window(NODE_IDS, validated_windows, activity)
 
         for node_id, node_readings in validated_windows.items():
@@ -231,14 +334,17 @@ def predict_endpoint():
             "used_node_ids": NODE_IDS,
             "activity": activity,
             "confidence": round(confidence, 4),
-            "fusion": "pamap2_3_node_feature_concat"
+            "fusion": "own_3_node_feature_concat",
+            "window_size": WINDOW_SIZE,
+            "features_per_node": list(FEATURES_PER_NODE)
         })
 
     except ValueError as e:
+        print("PREDICT 400:", str(e), flush=True)
         return jsonify({"error": str(e)}), 400
 
     except Exception as e:
         import traceback
-        print("PREDICT ERROR:", repr(e))
+        print("PREDICT ERROR:", repr(e), flush=True)
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
