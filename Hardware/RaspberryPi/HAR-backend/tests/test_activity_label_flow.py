@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import database
+import routes.activity as activity
 from app import app
 from database import db_get, db_run
 
@@ -40,11 +41,17 @@ class ActivityLabelFlowTests(unittest.TestCase):
         self.tmp.close()
         self.sensor_log = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl")
         self.sensor_log.close()
+        self.calibration_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+        self.calibration_file.close()
+        os.remove(self.calibration_file.name)
         os.environ["SENSOR_LOG_PATH"] = self.sensor_log.name
+        os.environ["HAR_LIVE_CALIBRATION_PATH"] = self.calibration_file.name
 
         database.close_database()
         database.db_path = self.tmp.name
         database.init_database()
+        activity.LATEST_WINDOWS_BY_NODE.clear()
+        activity.LAST_NODE_ID = None
         self._seed_test_images()
 
         self.client = app.test_client()
@@ -62,12 +69,17 @@ class ActivityLabelFlowTests(unittest.TestCase):
             )
 
     def tearDown(self):
+        activity.LATEST_WINDOWS_BY_NODE.clear()
+        activity.LAST_NODE_ID = None
         database.close_database()
         os.environ.pop("SENSOR_LOG_PATH", None)
+        os.environ.pop("HAR_LIVE_CALIBRATION_PATH", None)
         if os.path.exists(self.tmp.name):
             os.remove(self.tmp.name)
         if os.path.exists(self.sensor_log.name):
             os.remove(self.sensor_log.name)
+        if os.path.exists(self.calibration_file.name):
+            os.remove(self.calibration_file.name)
 
     def test_predict_updates_current_label_and_frontend_get_label(self):
         payload = {"windows_by_node": build_windows_by_node()}

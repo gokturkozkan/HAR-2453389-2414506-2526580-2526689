@@ -11,7 +11,17 @@ from routes.esp import esp_bp
 from routes.admin import admin_bp
 from routes.user import user_bp
 from routes.label import label_bp, clear_label
-from routes.activity import activity_bp, load_model
+from routes.activity import (
+    activity_bp,
+    load_model,
+    DEFAULT_AXIS_TRANSFORM,
+    DEFAULT_MAG_MODE,
+    DEFAULT_NODE_AXIS_TRANSFORMS,
+    DEFAULT_NODE_ORDER,
+    get_pamap2_best_config_path,
+    get_pamap2_calibration_path,
+    load_pamap2_best_config,
+)
 
 load_dotenv()
 
@@ -53,6 +63,16 @@ def health():
         "model": "pamap2_basic_har_model.keras",
         "model_profile": "pamap2_basic_keras",
         "window_size": 200,
+        "pamap2_node_order": list(DEFAULT_NODE_ORDER),
+        "pamap2_axis_transform": DEFAULT_AXIS_TRANSFORM,
+        "pamap2_node_axis_transforms": {
+            str(node_id): node_axis
+            for node_id, node_axis in DEFAULT_NODE_AXIS_TRANSFORMS.items()
+        },
+        "pamap2_mag_mode": DEFAULT_MAG_MODE,
+        "pamap2_calibration_path": get_pamap2_calibration_path(),
+        "pamap2_best_config_path": get_pamap2_best_config_path(),
+        "pamap2_best_config": load_pamap2_best_config(),
         "nodes": {
             "1": "wrist",
             "2": "chest",
