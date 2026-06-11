@@ -16,13 +16,13 @@ model accuracy.
 4. Backend endpoints were called repeatedly using Flask's test client.
 5. Latency was measured with `time.perf_counter()`.
 6. Process CPU time and maximum resident memory were collected using Python's standard library.
-7. Results were exported to `test_evidence/performance_results.json`.
+7. Results were exported to `test_results/performance_results.json`.
 
 Command used:
 
 ```bash
 cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend
-.venv/bin/python test_evidence/performance_benchmark.py
+.venv/bin/python test_results/performance_benchmark.py
 ```
 
 ### 6.4.2 Test Cases
@@ -39,28 +39,28 @@ cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/
 
 | Benchmark | Iterations | Success Count | Mean ms | Median ms | P95 ms | Max ms | Result |
 |---|---:|---:|---:|---:|---:|---:|---|
-| GET /health | 50 | 50 | 0.323 | 0.261 | 0.485 | 1.957 | Passed |
-| GET /esp-status | 50 | 50 | 0.312 | 0.304 | 0.345 | 0.492 | Passed |
-| GET /label | 50 | 50 | 2.112 | 1.994 | 2.674 | 3.124 | Passed |
-| POST /predict | 15 | 15 | 28.062 | 27.821 | 28.235 | 31.543 | Passed |
-| POST /calibration/sample | 15 | 15 | 9.768 | 9.775 | 10.901 | 11.07 | Passed |
+| GET /health | 50 | 50 | 0.446 | 0.387 | 0.536 | 1.923 | Passed |
+| GET /esp-status | 50 | 50 | 0.315 | 0.304 | 0.41 | 0.487 | Passed |
+| GET /label | 50 | 50 | 2.024 | 1.987 | 2.164 | 3.274 | Passed |
+| POST /predict | 15 | 15 | 27.591 | 27.517 | 28.133 | 28.19 | Passed |
+| POST /calibration/sample | 15 | 15 | 9.817 | 9.894 | 10.851 | 10.992 | Passed |
 
 Process-level resource summary:
 
 | Metric | Value |
 |---|---:|
-| CPU time used during benchmark | 4.734 s |
-| Max resident memory | 560.953 MB |
+| CPU time used during benchmark | 4.42 s |
+| Max resident memory | 527.094 MB |
 
 ### 6.4.4 Test Log
 
-- Performance benchmark executed at 2026-05-10T17:07:11.021103+00:00.
+- Performance benchmark executed at 2026-05-10T21:28:21.188538+00:00.
 - A temporary database was used, so no production data was modified.
 - Prediction output was mocked as `walking` to measure backend processing rather than model accuracy.
 - All measured endpoint calls returned successful HTTP status codes.
 - The prediction endpoint accepted full 3-node, 200-timestep windows during repeated calls.
 - Calibration sample writes completed successfully during repeated calls.
-- Results were saved to `test_evidence/performance_results.json`.
+- Results were saved to `test_results/performance_results.json`.
 
 ### Figures / Screenshot Evidence to Add
 

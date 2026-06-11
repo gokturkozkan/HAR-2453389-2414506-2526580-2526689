@@ -20,8 +20,8 @@ import tdma_hub as hub
 
 NODE_MACS = {
     1: "08:A6:F7:47:4C:CE",
-    2: "94:54:C5:E7:E4:1A",
-    3: "94:54:C5:E7:E7:16",
+    2: "08:D1:F9:DF:D7:BA",
+    3: "10:06:1C:85:EC:86",
 }
 
 DIAGNOSTIC_LOG_PATH = os.getenv(

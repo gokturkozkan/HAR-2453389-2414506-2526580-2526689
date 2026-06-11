@@ -102,13 +102,13 @@ model accuracy.
 4. Backend endpoints were called repeatedly using Flask's test client.
 5. Latency was measured with `time.perf_counter()`.
 6. Process CPU time and maximum resident memory were collected using Python's standard library.
-7. Results were exported to `test_evidence/performance_results.json`.
+7. Results were exported to `test_results/performance_results.json`.
 
 Command used:
 
 ```bash
 cd /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend
-.venv/bin/python test_evidence/performance_benchmark.py
+.venv/bin/python test_results/performance_benchmark.py
 ```
 
 ### 6.4.2 Test Cases
@@ -142,7 +142,7 @@ Process-level resource summary:
 - All measured endpoint calls returned successful HTTP status codes.
 - The prediction endpoint accepted full 3-node, 200-timestep windows during repeated calls.
 - Calibration sample writes completed successfully during repeated calls.
-- Results were saved to `test_evidence/performance_results.json`.
+- Results were saved to `test_results/performance_results.json`.
 
 ### Figures / Screenshot Evidence to Add
 

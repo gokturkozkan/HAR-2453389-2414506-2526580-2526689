@@ -1,0 +1,6 @@
+$ ADMIN_TOKEN=test-token .venv/bin/python - <<PY  # admin route unauthorized response
+GET /admin/users.json
+ADMIN_TOKEN configured: yes
+Request x-admin-token header: <missing>
+Status: 401
+Body: null
