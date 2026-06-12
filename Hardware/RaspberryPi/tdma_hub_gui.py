@@ -16,12 +16,42 @@ from urllib import error, request
 import serial
 
 import tdma_hub as hub
+from har_dataset_utils import (
+    ACTIVITIES,
+    FEATURE_KEYS,
+    NODE_LAYOUT,
+    append_jsonl,
+    default_dataset_root,
+    ensure_dir,
+    local_now_iso,
+    sanitize_token,
+    write_json,
+)
 
 
 NODE_MACS = {
     1: "08:A6:F7:47:4C:CE",
     2: "08:D1:F9:DF:D7:BA",
-    3: "10:06:1C:85:EC:86",
+    3: "08:A6:F7:47:43:72",
+}
+
+ACTIVITY_GUIDELINES = {
+    "standing": (
+        "Stand naturally in place with both feet on the floor. Keep arms relaxed, "
+        "small natural body sway is okay, but do not walk, sit, turn around, or lean heavily."
+    ),
+    "sitting": (
+        "Sit on a chair before warmup ends. Keep feet on the floor and stay seated. "
+        "Do not include sitting down or standing up transitions in the recording."
+    ),
+    "lying": (
+        "Lie down before warmup ends and stay stable. Back or side lying are both okay, "
+        "but record them as separate clean sessions when possible. Do not include getting down or standing up."
+    ),
+    "walking": (
+        "Walk continuously at one chosen speed. Use natural arm swing and avoid stops, "
+        "phone handling, sudden turns, or standing pauses during the recording."
+    ),
 }
 
 DIAGNOSTIC_LOG_PATH = os.getenv(
@@ -51,7 +81,8 @@ class TdmaHubGui:
     def __init__(self, root):
         self.root = root
         self.root.title("HAR TDMA Bluetooth Hub")
-        self.root.geometry("1180x720")
+        self.root.geometry("1180x960")
+        self.root.minsize(1100, 900)
 
         self.nodes = {
             node_id: NodeState(
@@ -77,6 +108,15 @@ class TdmaHubGui:
         self.rows_since_prediction = 0
         self.last_prediction = "WAITING"
         self.last_notice_at = {}
+        self.low_performance = os.getenv("HAR_GUI_LOW_POWER", "1") not in ("0", "false", "False")
+        self.show_raw_lines = os.getenv("HAR_GUI_SHOW_RAW_LINES", "0") not in ("0", "false", "False")
+        self.skip_prediction_while_collecting = (
+            os.getenv("HAR_GUI_SKIP_PREDICT_WHILE_COLLECTING", "1")
+            not in ("0", "false", "False")
+        )
+        self.sample_ui_interval = float(os.getenv("HAR_GUI_SAMPLE_UI_INTERVAL", "0.5"))
+        self.terminal_max_lines = int(os.getenv("HAR_GUI_TERMINAL_MAX_LINES", "300"))
+        self.last_sample_ui_at = {node_id: 0.0 for node_id in (1, 2, 3)}
 
         self.status_vars = {}
         self.detail_vars = {}
@@ -100,6 +140,29 @@ class TdmaHubGui:
         self.sweep_axis_var = tk.BooleanVar(value=True)
         self.use_live_calibration_var = tk.BooleanVar(value=False)
         self.pamap2_sweep_running = False
+        self.low_performance_var = tk.BooleanVar(value=self.low_performance)
+        self.show_raw_lines_var = tk.BooleanVar(value=self.show_raw_lines)
+        self.skip_prediction_while_collecting_var = tk.BooleanVar(
+            value=self.skip_prediction_while_collecting
+        )
+        self.low_performance_var.trace_add("write", lambda *_: self.sync_performance_options())
+        self.show_raw_lines_var.trace_add("write", lambda *_: self.sync_performance_options())
+        self.skip_prediction_while_collecting_var.trace_add(
+            "write",
+            lambda *_: self.sync_performance_options(),
+        )
+        self.dataset_root = os.getenv("HAR_DATASET_ROOT", default_dataset_root())
+        self.dataset_collection = None
+        self.dataset_participant_var = tk.StringVar(value="p01")
+        self.dataset_activity_var = tk.StringVar(value="standing")
+        self.dataset_duration_var = tk.StringVar(value="60")
+        self.dataset_warmup_var = tk.StringVar(value="5")
+        self.dataset_notes_var = tk.StringVar(value="")
+        self.dataset_status_var = tk.StringVar(value="Dataset: idle")
+        self.dataset_guideline_var = tk.StringVar(
+            value=self.dataset_guideline_text(self.dataset_activity_var.get())
+        )
+        self.dataset_activity_var.trace_add("write", lambda *_: self.update_dataset_guideline())
 
         self.build_ui()
         self.root.after(80, self.drain_events)
@@ -142,6 +205,25 @@ class TdmaHubGui:
         ttk.Button(controls, text="Clear Terminal", command=self.clear_terminal).pack(
             side=tk.LEFT
         )
+
+        performance_controls = ttk.Frame(left)
+        performance_controls.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Checkbutton(
+            performance_controls,
+            text="Low Performance Mode",
+            variable=self.low_performance_var,
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(
+            performance_controls,
+            text="Show Raw Lines",
+            variable=self.show_raw_lines_var,
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(
+            performance_controls,
+            text="Skip Predict While Collecting",
+            variable=self.skip_prediction_while_collecting_var,
+        ).pack(side=tk.LEFT)
 
         model_controls = ttk.Frame(left)
         model_controls.pack(fill=tk.X, pady=(0, 10))
@@ -242,6 +324,8 @@ class TdmaHubGui:
             command=self.use_same_orientation_config,
         ).pack(side=tk.LEFT, padx=(0, 8))
 
+        self.build_dataset_panel(left)
+
         self.prediction_var = tk.StringVar(value="Prediction: WAITING")
         self.window_var = tk.StringVar(value=f"Window: 0.0s/{self.resample_seconds:.1f}s")
         ttk.Label(left, textvariable=self.prediction_var, font=("TkDefaultFont", 12, "bold")).pack(
@@ -271,6 +355,88 @@ class TdmaHubGui:
             f"{hub.WINDOW_SIZE} model timesteps."
         )
         self.root.after(300, self.sync_backend_config)
+
+    def build_dataset_panel(self, parent):
+        frame = ttk.LabelFrame(parent, text="Dataset Collection", padding=10)
+        frame.pack(fill=tk.X, pady=(0, 10))
+
+        row1 = ttk.Frame(frame)
+        row1.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(row1, text="Participant").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(row1, textvariable=self.dataset_participant_var, width=8).pack(
+            side=tk.LEFT, padx=(0, 8)
+        )
+
+        ttk.Label(row1, text="Activity").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Combobox(
+            row1,
+            values=ACTIVITIES,
+            textvariable=self.dataset_activity_var,
+            width=9,
+            state="readonly",
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        ttk.Label(row1, text="Duration").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Spinbox(
+            row1,
+            from_=10,
+            to=3600,
+            increment=10,
+            width=6,
+            textvariable=self.dataset_duration_var,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        ttk.Label(row1, text="Warmup").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Spinbox(
+            row1,
+            from_=0,
+            to=60,
+            increment=1,
+            width=5,
+            textvariable=self.dataset_warmup_var,
+        ).pack(side=tk.LEFT)
+
+        row2 = ttk.Frame(frame)
+        row2.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(row2, text="Notes").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(row2, textvariable=self.dataset_notes_var, width=35).pack(
+            side=tk.LEFT,
+            fill=tk.X,
+            expand=True,
+            padx=(0, 8),
+        )
+
+        ttk.Button(row2, text="Start Dataset", command=self.start_dataset_collection).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(row2, text="Stop Dataset", command=self.stop_dataset_collection).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(row2, text="Build Windows", command=lambda: self.async_call(self.build_window_dataset)).pack(
+            side=tk.LEFT
+        )
+
+        ttk.Label(frame, textvariable=self.dataset_guideline_var, wraplength=520).pack(
+            anchor=tk.W,
+            pady=(0, 6),
+        )
+        ttk.Label(frame, textvariable=self.dataset_status_var, wraplength=520).pack(anchor=tk.W)
+
+    def get_activity_guideline(self, activity):
+        return ACTIVITY_GUIDELINES.get(
+            sanitize_token(activity),
+            "Keep the selected activity clean and avoid transition movements during recording.",
+        )
+
+    def dataset_guideline_text(self, activity):
+        return f"Guideline: {self.get_activity_guideline(activity)}"
+
+    def update_dataset_guideline(self):
+        self.dataset_guideline_var.set(
+            self.dataset_guideline_text(self.dataset_activity_var.get())
+        )
 
     def build_node_card(self, parent, node_id):
         node = self.nodes[node_id]
@@ -455,6 +621,32 @@ class TdmaHubGui:
         thread = threading.Thread(target=fn, args=args, daemon=True)
         thread.start()
 
+    def sync_performance_options(self):
+        self.low_performance = bool(self.low_performance_var.get())
+        self.show_raw_lines = bool(self.show_raw_lines_var.get())
+        self.skip_prediction_while_collecting = bool(
+            self.skip_prediction_while_collecting_var.get()
+        )
+
+    def is_dataset_collection_active(self):
+        with self.lock:
+            return bool(self.dataset_collection and self.dataset_collection.get("active"))
+
+    def should_emit_sample_event(self, node_id):
+        if not self.low_performance:
+            return True
+
+        now = time.monotonic()
+
+        if now - self.last_sample_ui_at.get(node_id, 0.0) < self.sample_ui_interval:
+            return False
+
+        self.last_sample_ui_at[node_id] = now
+        return True
+
+    def should_log_raw_sample_line(self):
+        return self.show_raw_lines
+
     def set_node_status(self, node_id, status, detail=None):
         self.events.put(("node_status", node_id, status, detail))
 
@@ -481,14 +673,15 @@ class TdmaHubGui:
         timestamp = time.strftime("%H:%M:%S")
         self.terminal.configure(state=tk.NORMAL)
         self.terminal.insert(tk.END, f"[{timestamp}] {message}\n")
-        self.terminal.see(tk.END)
-        self.terminal.configure(state=tk.DISABLED)
 
         line_count = int(self.terminal.index("end-1c").split(".")[0])
-        if line_count > 1200:
-            self.terminal.configure(state=tk.NORMAL)
-            self.terminal.delete("1.0", "200.0")
-            self.terminal.configure(state=tk.DISABLED)
+
+        if line_count > self.terminal_max_lines:
+            delete_until = max(1, line_count - self.terminal_max_lines + 1)
+            self.terminal.delete("1.0", f"{delete_until}.0")
+
+        self.terminal.see(tk.END)
+        self.terminal.configure(state=tk.DISABLED)
 
     def clear_terminal(self):
         self.terminal.configure(state=tk.NORMAL)
@@ -1156,13 +1349,30 @@ class TdmaHubGui:
         try:
             ser = self.open_serial(node_id)
         except Exception as exc:
-            with self.lock:
-                node.errors += 1
-                node.status = "Open failed"
-            self.set_node_status(node_id, "Open failed", str(exc))
             self.log_from_thread(f"Node {node_id}: open failed: {exc}")
-            hub.write_sensor_log("gui_open_error", node_id=node_id, port=node.port, error=repr(exc))
-            return
+            self.log_from_thread(f"Node {node_id}: trying Bluetooth connect + rfcomm rebind once...")
+
+            self.bluetooth_connect_node(node_id)
+            time.sleep(0.5)
+            self.rebind_one_node(node_id)
+            time.sleep(0.2)
+
+            try:
+                ser = self.open_serial(node_id)
+            except Exception as retry_exc:
+                with self.lock:
+                    node.errors += 1
+                    node.status = "Open failed"
+                self.set_node_status(node_id, "Open failed", str(retry_exc))
+                self.log_from_thread(f"Node {node_id}: retry open failed: {retry_exc}")
+                hub.write_sensor_log(
+                    "gui_open_error",
+                    node_id=node_id,
+                    port=node.port,
+                    error=repr(retry_exc),
+                    first_error=repr(exc),
+                )
+                return
 
         with self.lock:
             node.ser = ser
@@ -1323,6 +1533,260 @@ class TdmaHubGui:
         self.receiving = False
         self.log("Receiving stopped. Serial connections stay open.")
 
+    def parse_dataset_seconds(self, value, field_name):
+        try:
+            seconds = float(str(value).strip())
+        except Exception as exc:
+            raise ValueError(f"{field_name} must be a number") from exc
+
+        if seconds < 0:
+            raise ValueError(f"{field_name} must be 0 or greater")
+
+        return seconds
+
+    def start_dataset_collection(self):
+        with self.lock:
+            if self.dataset_collection and self.dataset_collection.get("active"):
+                self.log("Dataset collection is already running.")
+                return
+
+        try:
+            participant = sanitize_token(self.dataset_participant_var.get())
+            activity = sanitize_token(self.dataset_activity_var.get())
+            duration_seconds = self.parse_dataset_seconds(
+                self.dataset_duration_var.get(),
+                "Duration",
+            )
+            warmup_seconds = self.parse_dataset_seconds(
+                self.dataset_warmup_var.get(),
+                "Warmup",
+            )
+        except ValueError as error:
+            self.log(str(error))
+            return
+
+        if activity not in ACTIVITIES:
+            self.log(f"Activity must be one of: {', '.join(ACTIVITIES)}")
+            return
+
+        if duration_seconds <= 0:
+            self.log("Duration must be greater than 0 seconds.")
+            return
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_id = f"session_{stamp}_{participant}_{activity}"
+        session_dir = ensure_dir(os.path.join(self.dataset_root, "raw_sessions", session_id))
+        metadata_path = os.path.join(session_dir, "metadata.json")
+        samples_path = os.path.join(session_dir, "raw_samples.jsonl")
+        metadata = {
+            "session_id": session_id,
+            "participant_id": participant,
+            "activity": activity,
+            "started_at": local_now_iso(),
+            "duration_seconds": float(duration_seconds),
+            "warmup_seconds": float(warmup_seconds),
+            "node_layout": NODE_LAYOUT,
+            "node_ports": {str(node_id): hub.NODE_PORTS[node_id] for node_id in (1, 2, 3)},
+            "features": list(FEATURE_KEYS),
+            "notes": self.dataset_notes_var.get().strip(),
+            "activity_guideline": self.get_activity_guideline(activity),
+            "status": "running",
+        }
+
+        try:
+            write_json(metadata_path, metadata)
+            samples_file = open(samples_path, "a", encoding="utf-8")
+        except Exception as error:
+            self.log(f"Failed to start dataset session: {error}")
+            return
+
+        now_monotonic = time.monotonic()
+        collection = {
+            "active": True,
+            "session_id": session_id,
+            "participant_id": participant,
+            "activity": activity,
+            "session_dir": session_dir,
+            "metadata_path": metadata_path,
+            "samples_path": samples_path,
+            "metadata": metadata,
+            "file": samples_file,
+            "started_monotonic": now_monotonic,
+            "warmup_until": now_monotonic + warmup_seconds,
+            "stop_at": now_monotonic + warmup_seconds + duration_seconds,
+            "duration_seconds": duration_seconds,
+            "warmup_seconds": warmup_seconds,
+            "sample_count": 0,
+            "node_counts": {"1": 0, "2": 0, "3": 0},
+            "last_status_at": 0.0,
+        }
+
+        with self.lock:
+            self.dataset_collection = collection
+
+        self.dataset_status_var.set(
+            f"Dataset: warmup {warmup_seconds:.0f}s -> {session_id}"
+        )
+        self.log(f"Dataset session started: {session_id}")
+        self.log(f"Raw samples: {samples_path}")
+
+        if not self.receiving:
+            self.start_receiving()
+
+    def stop_dataset_collection(self):
+        self.finish_dataset_collection(status="stopped", from_thread=False)
+
+    def finish_dataset_collection(self, status="completed", from_thread=False):
+        with self.lock:
+            collection = self.dataset_collection
+
+            if not collection or not collection.get("active"):
+                if not from_thread:
+                    self.log("Dataset collection is not running.")
+                return
+
+            collection["active"] = False
+            samples_file = collection.get("file")
+            metadata = dict(collection.get("metadata") or {})
+            metadata.update({
+                "finished_at": local_now_iso(),
+                "status": status,
+                "sample_count": int(collection.get("sample_count", 0)),
+                "node_sample_counts": dict(collection.get("node_counts", {})),
+                "samples_path": collection.get("samples_path"),
+            })
+            metadata_path = collection.get("metadata_path")
+            session_id = collection.get("session_id")
+            sample_count = int(collection.get("sample_count", 0))
+            self.dataset_collection = collection
+
+        try:
+            if samples_file is not None:
+                samples_file.flush()
+                samples_file.close()
+        except Exception as error:
+            message = f"Dataset file close failed: {error}"
+            self.events.put(("log", message)) if from_thread else self.log(message)
+
+        try:
+            write_json(metadata_path, metadata)
+        except Exception as error:
+            message = f"Dataset metadata update failed: {error}"
+            self.events.put(("log", message)) if from_thread else self.log(message)
+
+        status_text = f"Dataset: {status} {session_id}, samples={sample_count}"
+
+        if from_thread:
+            self.events.put(("dataset_status", status_text))
+            self.events.put(("log", status_text))
+        else:
+            self.dataset_status_var.set(status_text)
+            self.log(status_text)
+
+    def update_dataset_status_from_thread(self, text):
+        self.events.put(("dataset_status", text))
+
+    def check_dataset_collection_timeout(self):
+        with self.lock:
+            collection = self.dataset_collection
+            active = bool(collection and collection.get("active"))
+            stop_at = collection.get("stop_at") if active else None
+
+        if active and time.monotonic() >= stop_at:
+            self.finish_dataset_collection(status="completed", from_thread=True)
+
+    def record_dataset_sample(self, parsed):
+        now_monotonic = time.monotonic()
+        should_finish = False
+        status_text = None
+
+        with self.lock:
+            collection = self.dataset_collection
+
+            if not collection or not collection.get("active"):
+                return
+
+            if now_monotonic >= collection["stop_at"]:
+                should_finish = True
+            elif now_monotonic < collection["warmup_until"]:
+                remaining = collection["warmup_until"] - now_monotonic
+
+                if now_monotonic - collection.get("last_status_at", 0.0) >= 1.0:
+                    collection["last_status_at"] = now_monotonic
+                    status_text = f"Dataset: warmup {remaining:.1f}s"
+            else:
+                entry = {
+                    "session_id": collection["session_id"],
+                    "participant_id": collection["participant_id"],
+                    "activity": collection["activity"],
+                    "node_id": int(parsed["node_id"]),
+                    "node_name": NODE_LAYOUT[str(parsed["node_id"])],
+                    "t_device_ms": int(parsed["t"]),
+                    "t_host": time.time(),
+                }
+
+                for feature in FEATURE_KEYS:
+                    entry[feature] = float(parsed.get(feature, 0.0))
+
+                append_jsonl(collection["file"], entry)
+                collection["sample_count"] += 1
+                collection["node_counts"][str(parsed["node_id"])] += 1
+
+                if collection["sample_count"] % 20 == 0:
+                    collection["file"].flush()
+
+                if now_monotonic - collection.get("last_status_at", 0.0) >= 1.0:
+                    collection["last_status_at"] = now_monotonic
+                    elapsed = now_monotonic - collection["warmup_until"]
+                    remaining = max(0.0, collection["stop_at"] - now_monotonic)
+                    status_text = (
+                        f"Dataset: recording {elapsed:.1f}/"
+                        f"{collection['duration_seconds']:.1f}s "
+                        f"samples={collection['sample_count']} "
+                        f"remaining={remaining:.1f}s"
+                    )
+
+        if status_text:
+            self.update_dataset_status_from_thread(status_text)
+
+        if should_finish:
+            self.finish_dataset_collection(status="completed", from_thread=True)
+
+    def build_window_dataset(self):
+        python_path = os.path.join(os.path.dirname(__file__), "HAR-backend", ".venv", "bin", "python")
+
+        if not os.path.exists(python_path):
+            python_path = sys.executable
+
+        script_path = os.path.join(os.path.dirname(__file__), "build_window_dataset.py")
+        command = [
+            python_path,
+            script_path,
+            "--dataset-root",
+            self.dataset_root,
+        ]
+
+        self.log_from_thread("Building 200x27 dataset windows...")
+
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=os.path.dirname(__file__),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            output = (proc.stdout or "") + (proc.stderr or "")
+
+            for line in output.splitlines():
+                self.log_from_thread(line)
+
+            status = "completed" if proc.returncode == 0 else f"failed ({proc.returncode})"
+            self.events.put(("dataset_status", f"Dataset windows build {status}"))
+        except Exception as error:
+            self.log_from_thread(f"Build windows failed: {error}")
+            self.events.put(("dataset_status", "Dataset windows build failed"))
+
     def receive_loop(self):
         while self.receiving:
             frame_start = time.perf_counter()
@@ -1368,15 +1832,27 @@ class TdmaHubGui:
                 if parsed:
                     parsed = hub.calibrate_node_sample(parsed)
                     self.append_window(parsed)
+                    self.record_dataset_sample(parsed)
 
                     with self.lock:
                         node.status = "Receiving"
                         node.latest_line = line
                         node.latest_sample = parsed
 
-                self.events.put(("sample", node_id, line, parsed, True))
+                if self.should_emit_sample_event(node_id):
+                    self.events.put((
+                        "sample",
+                        node_id,
+                        line,
+                        parsed,
+                        self.should_log_raw_sample_line(),
+                    ))
 
-            self.maybe_predict()
+            if self.skip_prediction_while_collecting and self.is_dataset_collection_active():
+                self.rows_since_prediction = 0
+            else:
+                self.maybe_predict()
+            self.check_dataset_collection_timeout()
 
             elapsed = time.perf_counter() - frame_start
             sleep_for = max(0.02, hub.FRAME_PERIOD - elapsed)
@@ -2170,7 +2646,7 @@ class TdmaHubGui:
                             f"mag=({parsed['mx']:.0f}, {parsed['my']:.0f}, {parsed['mz']:.0f})"
                         )
                         self.sample_vars[node_id].set(text)
-                        self.status_vars[node_id].set("Receiving" if show_line else "Ready")
+                        self.status_vars[node_id].set("Receiving")
                     else:
                         self.sample_vars[node_id].set(f"Latest raw: {line}")
                     if show_line:
@@ -2183,6 +2659,8 @@ class TdmaHubGui:
                 elif kind == "prediction":
                     prediction = event[1]
                     self.prediction_var.set(f"Prediction: {prediction}")
+                elif kind == "dataset_status":
+                    self.dataset_status_var.set(event[1])
                 elif kind == "backend_config":
                     config = event[1]
                     best_config = config.get("pamap2_best_config") or {}
@@ -2229,6 +2707,12 @@ class TdmaHubGui:
         self.root.after(80, self.drain_events)
 
     def on_close(self):
+        with self.lock:
+            collection_active = bool(self.dataset_collection and self.dataset_collection.get("active"))
+
+        if collection_active:
+            self.finish_dataset_collection(status="stopped", from_thread=False)
+
         self.receiving = False
         time.sleep(0.1)
 

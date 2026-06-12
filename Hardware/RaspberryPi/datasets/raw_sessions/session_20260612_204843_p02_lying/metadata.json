@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260612_204843_p02_lying",
+  "participant_id": "p02",
+  "activity": "lying",
+  "started_at": "2026-06-12T20:48:43.984897+03:00",
+  "duration_seconds": 120.0,
+  "warmup_seconds": 20.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Lie down before warmup ends and stay stable. Back or side lying are both okay, but record them as separate clean sessions when possible. Do not include getting down or standing up.",
+  "status": "completed",
+  "finished_at": "2026-06-12T20:51:04.069824+03:00",
+  "sample_count": 1200,
+  "node_sample_counts": {
+    "1": 400,
+    "2": 400,
+    "3": 400
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260612_204843_p02_lying/raw_samples.jsonl"
+}

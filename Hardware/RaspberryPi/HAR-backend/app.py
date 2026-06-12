@@ -18,6 +18,7 @@ from routes.activity import (
     DEFAULT_MAG_MODE,
     DEFAULT_NODE_AXIS_TRANSFORMS,
     DEFAULT_NODE_ORDER,
+    get_model_metadata,
     get_pamap2_best_config_path,
     get_pamap2_calibration_path,
     load_pamap2_best_config,
@@ -57,11 +58,22 @@ app.register_blueprint(activity_bp)
 def health():
     from datetime import datetime
 
+    model_metadata = get_model_metadata()
+
     return jsonify({
         "status": "ok",
         "service": "HAR Backend",
-        "model": "pamap2_basic_har_model.keras",
-        "model_profile": "pamap2_basic_keras",
+        "model": model_metadata["model_file"],
+        "model_profile": model_metadata["profile"],
+        "configured_model_profile": model_metadata["configured_profile"],
+        "model_loaded": model_metadata["loaded"],
+        "model_input_shape": model_metadata["input_shape"],
+        "model_classes": model_metadata["classes"],
+        "model_paths": {
+            "model": model_metadata["model_path"],
+            "scaler": model_metadata["scaler_path"],
+            "label_encoder": model_metadata["label_encoder_path"],
+        },
         "window_size": 200,
         "pamap2_node_order": list(DEFAULT_NODE_ORDER),
         "pamap2_axis_transform": DEFAULT_AXIS_TRANSFORM,
@@ -116,7 +128,7 @@ def start_server():
     clear_label()
     print("Current label cleared")
 
-    print("Loading PAMAP2 HAR model...")
+    print("Loading HAR model...")
     load_model()
     print("Model loaded successfully")
 

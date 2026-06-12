@@ -20,11 +20,14 @@ activity_bp = Blueprint("activity", __name__)
 MODEL = None
 SCALER = None
 LABEL_ENCODER = None
+MODEL_PATH = None
+SCALER_PATH = None
+LABEL_ENCODER_PATH = None
 
 WINDOW_SIZE = 200
 NODE_IDS = [1, 2, 3]
 COMBINED_KEY = "_combined"
-MODEL_PROFILE = "pamap2_basic_keras"
+MODEL_PROFILE = os.getenv("HAR_MODEL_PROFILE", "pamap2_basic_keras")
 
 FEATURES_PER_NODE = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
 VECTOR_FEATURE_GROUPS = (
@@ -135,6 +138,75 @@ def get_pamap2_best_config_path():
 
     base_dir = os.path.dirname(__file__)
     return os.path.abspath(os.path.join(base_dir, "..", "logs", "pamap2_best_config.json"))
+
+
+def get_backend_dir():
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def get_default_model_dir():
+    return os.path.abspath(os.path.join(get_backend_dir(), "..", "model"))
+
+
+def default_model_files_for_profile(profile):
+    profile = str(profile or "").strip().lower()
+
+    if profile in ("own_har_200x27", "own", "custom"):
+        return {
+            "model": "own_har_200x27_model.keras",
+            "scaler": "own_har_200x27_scaler.pkl",
+            "label_encoder": "own_har_200x27_label_encoder.pkl",
+        }
+
+    return {
+        "model": "pamap2_basic_har_model.keras",
+        "scaler": "pamap2_basic_scaler.pkl",
+        "label_encoder": "pamap2_basic_label_encoder.pkl",
+    }
+
+
+def resolve_model_file(configured_path, default_filename):
+    if configured_path:
+        if os.path.isabs(configured_path):
+            return os.path.abspath(configured_path)
+
+        return os.path.abspath(os.path.join(get_backend_dir(), configured_path))
+
+    return os.path.join(get_default_model_dir(), default_filename)
+
+
+def get_model_config():
+    profile = os.getenv("HAR_MODEL_PROFILE", MODEL_PROFILE or "pamap2_basic_keras")
+    defaults = default_model_files_for_profile(profile)
+
+    return {
+        "profile": profile,
+        "model_path": resolve_model_file(os.getenv("HAR_MODEL_PATH"), defaults["model"]),
+        "scaler_path": resolve_model_file(os.getenv("HAR_SCALER_PATH"), defaults["scaler"]),
+        "label_encoder_path": resolve_model_file(
+            os.getenv("HAR_LABEL_ENCODER_PATH"),
+            defaults["label_encoder"],
+        ),
+    }
+
+
+def get_model_metadata():
+    config = get_model_config()
+    visible_profile = MODEL_PROFILE if MODEL is not None else config["profile"]
+
+    return {
+        "profile": visible_profile,
+        "configured_profile": config["profile"],
+        "loaded": MODEL is not None and SCALER is not None and LABEL_ENCODER is not None,
+        "model_path": MODEL_PATH or config["model_path"],
+        "scaler_path": SCALER_PATH or config["scaler_path"],
+        "label_encoder_path": LABEL_ENCODER_PATH or config["label_encoder_path"],
+        "model_file": os.path.basename(MODEL_PATH or config["model_path"]),
+        "scaler_file": os.path.basename(SCALER_PATH or config["scaler_path"]),
+        "label_encoder_file": os.path.basename(LABEL_ENCODER_PATH or config["label_encoder_path"]),
+        "classes": [str(label) for label in LABEL_ENCODER.classes_] if LABEL_ENCODER is not None else [],
+        "input_shape": list(MODEL.input_shape) if MODEL is not None else None,
+    }
 
 
 def make_prediction_id():
@@ -534,23 +606,23 @@ def write_prediction_debug_log(status, **metadata):
 
 def load_model():
     global MODEL, SCALER, LABEL_ENCODER
+    global MODEL_PROFILE, MODEL_PATH, SCALER_PATH, LABEL_ENCODER_PATH
 
-    base_dir = os.path.dirname(__file__)
-    model_dir = os.path.abspath(os.path.join(base_dir, "..", "..", "model"))
+    config = get_model_config()
+    MODEL_PROFILE = config["profile"]
+    MODEL_PATH = config["model_path"]
+    SCALER_PATH = config["scaler_path"]
+    LABEL_ENCODER_PATH = config["label_encoder_path"]
 
-    model_path = os.path.join(model_dir, "pamap2_basic_har_model.keras")
-    scaler_path = os.path.join(model_dir, "pamap2_basic_scaler.pkl")
-    label_encoder_path = os.path.join(model_dir, "pamap2_basic_label_encoder.pkl")
+    print("model_path exists:", os.path.exists(MODEL_PATH), MODEL_PATH)
+    print("scaler_path exists:", os.path.exists(SCALER_PATH), SCALER_PATH)
+    print("label_encoder_path exists:", os.path.exists(LABEL_ENCODER_PATH), LABEL_ENCODER_PATH)
 
-    print("model_path exists:", os.path.exists(model_path), model_path)
-    print("scaler_path exists:", os.path.exists(scaler_path), scaler_path)
-    print("label_encoder_path exists:", os.path.exists(label_encoder_path), label_encoder_path)
+    MODEL = tf.keras.models.load_model(MODEL_PATH)
+    SCALER = joblib.load(SCALER_PATH)
+    LABEL_ENCODER = joblib.load(LABEL_ENCODER_PATH)
 
-    MODEL = tf.keras.models.load_model(model_path)
-    SCALER = joblib.load(scaler_path)
-    LABEL_ENCODER = joblib.load(label_encoder_path)
-
-    print("PAMAP2 HAR model loaded")
+    print(f"HAR model loaded: {MODEL_PROFILE}")
     print("Model input shape:", MODEL.input_shape)
     print("Classes:", list(LABEL_ENCODER.classes_))
 
