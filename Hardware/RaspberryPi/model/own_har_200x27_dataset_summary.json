@@ -1,0 +1,799 @@
+{
+  "generated_at": "2026-06-15T09:41:54.593672+00:00",
+  "total_windows": 2166,
+  "classes": {
+    "lying": 418,
+    "sitting": 570,
+    "standing": 570,
+    "walking": 608
+  },
+  "participants": [
+    "p01",
+    "p02",
+    "p03"
+  ],
+  "sessions": [
+    "session_20260612_153314_p01_standing",
+    "session_20260612_153954_p01_standing",
+    "session_20260612_154300_p01_standing",
+    "session_20260612_161015_p01_standing",
+    "session_20260612_161346_p01_sitting",
+    "session_20260612_161700_p01_sitting",
+    "session_20260612_161923_p01_sitting",
+    "session_20260612_162140_p01_sitting",
+    "session_20260612_162420_p01_sitting",
+    "session_20260612_164329_p01_standing",
+    "session_20260612_164709_p01_walking",
+    "session_20260612_164943_p01_walking",
+    "session_20260612_165257_p01_walking",
+    "session_20260612_172146_p01_walking",
+    "session_20260612_172428_p01_walking",
+    "session_20260612_190934_p01_lying",
+    "session_20260612_191145_p01_lying",
+    "session_20260612_191355_p01_lying",
+    "session_20260612_191604_p01_lying",
+    "session_20260612_191815_p01_lying",
+    "session_20260612_194054_p02_standing",
+    "session_20260612_194332_p02_standing",
+    "session_20260612_194542_p02_standing",
+    "session_20260612_194823_p02_standing",
+    "session_20260612_195121_p02_standing",
+    "session_20260612_195455_p02_sitting",
+    "session_20260612_195757_p02_sitting",
+    "session_20260612_200018_p02_sitting",
+    "session_20260612_200456_p02_sitting",
+    "session_20260612_202212_p02_sitting",
+    "session_20260612_202519_p02_walking",
+    "session_20260612_202749_p02_walking",
+    "session_20260612_203011_p02_walking",
+    "session_20260612_203230_p02_walking",
+    "session_20260612_203507_p02_walking",
+    "session_20260612_204603_p02_lying",
+    "session_20260612_204843_p02_lying",
+    "session_20260612_205125_p02_lying",
+    "session_20260612_205411_p02_lying",
+    "session_20260612_205700_p02_lying",
+    "session_20260612_211731_p03_sitting",
+    "session_20260612_212137_p03_sitting",
+    "session_20260612_212417_p03_sitting",
+    "session_20260612_212700_p03_sitting",
+    "session_20260612_213053_p03_sitting",
+    "session_20260612_214520_p03_standing",
+    "session_20260612_214735_p03_standing",
+    "session_20260612_214956_p03_standing",
+    "session_20260612_215316_p03_standing",
+    "session_20260612_215539_p03_standing",
+    "session_20260612_220618_p03_walking",
+    "session_20260612_220834_p03_walking",
+    "session_20260612_221122_p03_walking",
+    "session_20260612_221445_p03_walking",
+    "session_20260612_221729_p03_walking",
+    "session_20260612_223000_p03_walking",
+    "session_20260612_223322_p03_lying"
+  ],
+  "session_count": 57,
+  "window_seconds": 6.0,
+  "model_timesteps": 200,
+  "node_order": [
+    1,
+    2,
+    3
+  ],
+  "features_per_node": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "features": 27,
+  "stride_seconds": 3.0,
+  "class_counts": {
+    "lying": 418,
+    "sitting": 570,
+    "standing": 570,
+    "walking": 608
+  },
+  "session_summaries": [
+    {
+      "session_id": "session_20260612_153314_p01_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.604,
+      "sample_counts": {
+        "1": 395,
+        "2": 394,
+        "3": 380
+      }
+    },
+    {
+      "session_id": "session_20260612_153954_p01_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.724,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_154300_p01_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.651,
+      "sample_counts": {
+        "1": 393,
+        "2": 393,
+        "3": 380
+      }
+    },
+    {
+      "session_id": "session_20260612_161015_p01_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.764,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_161346_p01_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.452,
+      "sample_counts": {
+        "1": 399,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_161700_p01_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.726,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_161923_p01_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.726,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_162140_p01_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.731,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_162420_p01_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.727,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_164329_p01_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.84,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_164709_p01_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.746,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 399
+      }
+    },
+    {
+      "session_id": "session_20260612_164943_p01_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.611,
+      "sample_counts": {
+        "1": 394,
+        "2": 394,
+        "3": 366
+      }
+    },
+    {
+      "session_id": "session_20260612_165257_p01_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.57,
+      "sample_counts": {
+        "1": 399,
+        "2": 399,
+        "3": 396
+      }
+    },
+    {
+      "session_id": "session_20260612_172146_p01_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 117.935,
+      "sample_counts": {
+        "1": 389,
+        "2": 389,
+        "3": 368
+      }
+    },
+    {
+      "session_id": "session_20260612_172428_p01_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.535,
+      "sample_counts": {
+        "1": 400,
+        "2": 399,
+        "3": 399
+      }
+    },
+    {
+      "session_id": "session_20260612_190934_p01_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.701,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_191145_p01_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.741,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_191355_p01_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.7,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_191604_p01_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.697,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_191815_p01_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.715,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_194054_p02_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.699,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_194332_p02_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.682,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_194542_p02_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.714,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_194823_p02_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.386,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 399
+      }
+    },
+    {
+      "session_id": "session_20260612_195121_p02_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.724,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_195455_p02_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.646,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_195757_p02_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.653,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_200018_p02_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.697,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_200456_p02_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.706,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_202212_p02_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.665,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_202519_p02_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.436,
+      "sample_counts": {
+        "1": 399,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_202749_p02_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.46,
+      "sample_counts": {
+        "1": 400,
+        "2": 399,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_203011_p02_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.511,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 399
+      }
+    },
+    {
+      "session_id": "session_20260612_203230_p02_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.472,
+      "sample_counts": {
+        "1": 400,
+        "2": 401,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_203507_p02_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.681,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_204603_p02_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.67,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_204843_p02_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.681,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_205125_p02_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.682,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_205411_p02_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.674,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_205700_p02_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.669,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_211731_p03_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.726,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_212137_p03_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.727,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_212417_p03_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.726,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_212700_p03_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.727,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_213053_p03_sitting",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.726,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_214520_p03_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.675,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_214735_p03_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.427,
+      "sample_counts": {
+        "1": 399,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_214956_p03_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.684,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_215316_p03_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.418,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 399
+      }
+    },
+    {
+      "session_id": "session_20260612_215539_p03_standing",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.686,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_220618_p03_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.429,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 399
+      }
+    },
+    {
+      "session_id": "session_20260612_220834_p03_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.686,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_221122_p03_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.682,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_221445_p03_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.685,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_221729_p03_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.668,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_223000_p03_walking",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.691,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    },
+    {
+      "session_id": "session_20260612_223322_p03_lying",
+      "status": "ok",
+      "windows": 38,
+      "common_seconds": 119.668,
+      "sample_counts": {
+        "1": 400,
+        "2": 400,
+        "3": 400
+      }
+    }
+  ],
+  "split": {
+    "split_by": "session",
+    "seed": 42,
+    "splits": {
+      "train": [
+        "session_20260612_153314_p01_standing",
+        "session_20260612_161015_p01_standing",
+        "session_20260612_161346_p01_sitting",
+        "session_20260612_164329_p01_standing",
+        "session_20260612_164709_p01_walking",
+        "session_20260612_164943_p01_walking",
+        "session_20260612_165257_p01_walking",
+        "session_20260612_172146_p01_walking",
+        "session_20260612_191145_p01_lying",
+        "session_20260612_191604_p01_lying",
+        "session_20260612_191815_p01_lying",
+        "session_20260612_194054_p02_standing",
+        "session_20260612_194332_p02_standing",
+        "session_20260612_194542_p02_standing",
+        "session_20260612_194823_p02_standing",
+        "session_20260612_195121_p02_standing",
+        "session_20260612_195455_p02_sitting",
+        "session_20260612_195757_p02_sitting",
+        "session_20260612_200456_p02_sitting",
+        "session_20260612_202212_p02_sitting",
+        "session_20260612_202519_p02_walking",
+        "session_20260612_202749_p02_walking",
+        "session_20260612_203011_p02_walking",
+        "session_20260612_203230_p02_walking",
+        "session_20260612_204603_p02_lying",
+        "session_20260612_204843_p02_lying",
+        "session_20260612_205411_p02_lying",
+        "session_20260612_205700_p02_lying",
+        "session_20260612_212137_p03_sitting",
+        "session_20260612_212417_p03_sitting",
+        "session_20260612_213053_p03_sitting",
+        "session_20260612_214520_p03_standing",
+        "session_20260612_214735_p03_standing",
+        "session_20260612_215316_p03_standing",
+        "session_20260612_215539_p03_standing",
+        "session_20260612_220618_p03_walking",
+        "session_20260612_220834_p03_walking",
+        "session_20260612_221122_p03_walking",
+        "session_20260612_223000_p03_walking",
+        "session_20260612_223322_p03_lying"
+      ],
+      "val": [
+        "session_20260612_154300_p01_standing",
+        "session_20260612_161700_p01_sitting",
+        "session_20260612_161923_p01_sitting",
+        "session_20260612_200018_p02_sitting",
+        "session_20260612_203507_p02_walking",
+        "session_20260612_205125_p02_lying",
+        "session_20260612_212700_p03_sitting",
+        "session_20260612_221445_p03_walking",
+        "session_20260612_221729_p03_walking"
+      ],
+      "test": [
+        "session_20260612_153954_p01_standing",
+        "session_20260612_162140_p01_sitting",
+        "session_20260612_162420_p01_sitting",
+        "session_20260612_172428_p01_walking",
+        "session_20260612_190934_p01_lying",
+        "session_20260612_191355_p01_lying",
+        "session_20260612_211731_p03_sitting",
+        "session_20260612_214956_p03_standing"
+      ]
+    }
+  }
+}

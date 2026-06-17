@@ -22,6 +22,7 @@ from routes.activity import (
     get_pamap2_best_config_path,
     get_pamap2_calibration_path,
     load_pamap2_best_config,
+    model_uses_own_har_preprocess,
 )
 
 load_dotenv()
@@ -74,6 +75,7 @@ def health():
             "scaler": model_metadata["scaler_path"],
             "label_encoder": model_metadata["label_encoder_path"],
         },
+        "model_uses_own_har_preprocess": model_uses_own_har_preprocess(model_metadata["profile"]),
         "window_size": 200,
         "pamap2_node_order": list(DEFAULT_NODE_ORDER),
         "pamap2_axis_transform": DEFAULT_AXIS_TRANSFORM,

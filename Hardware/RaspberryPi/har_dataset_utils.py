@@ -18,7 +18,20 @@ FEATURE_KEYS = ("ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
 WINDOW_SECONDS = 6.0
 MODEL_TIMESTEPS = 200
 NODE_ORDER = (1, 2, 3)
-ACTIVITIES = ("standing", "sitting", "lying", "walking")
+ACTIVITIES = (
+    "standing",
+    "sitting",
+    "lying",
+    "walking",
+    "crouching",
+    "x_pose",
+    "punching",
+    "turning",
+)
+ACTIVITY_ALIASES = {
+    "x-pose": "x_pose",
+    "xpose": "x_pose",
+}
 
 
 def raspberrypi_dir():
@@ -97,6 +110,11 @@ def sanitize_token(value):
             cleaned.append("_")
 
     return "".join(cleaned).strip("_") or "unknown"
+
+
+def normalize_activity(value):
+    token = sanitize_token(value)
+    return ACTIVITY_ALIASES.get(token, token)
 
 
 def load_raw_sessions(dataset_root=None):
@@ -178,20 +196,24 @@ def resample_node(rows, start_time, window_seconds=WINDOW_SECONDS, model_timeste
     end_time = start_time + window_seconds
     rows = dedupe_times(rows)
 
-    if not can_resample_node(rows, start_time, end_time):
+    if len(rows) < 2 or rows[0]["t_host"] > start_time or rows[-1]["t_host"] < end_time:
         return None
 
     source_times = np.asarray([row["t_host"] for row in rows], dtype=np.float64)
     target_times = np.linspace(start_time, end_time, model_timesteps, dtype=np.float64)
+    interpolated = {}
+
+    for feature in FEATURE_KEYS:
+        source_values = np.asarray([row[feature] for row in rows], dtype=np.float64)
+        interpolated[feature] = np.interp(target_times, source_times, source_values)
+
     resampled = []
 
     for target_index, target_time in enumerate(target_times):
-        reading = {}
-
-        for feature in FEATURE_KEYS:
-            source_values = np.asarray([row[feature] for row in rows], dtype=np.float64)
-            reading[feature] = float(np.interp(target_time, source_times, source_values))
-
+        reading = {
+            feature: float(interpolated[feature][target_index])
+            for feature in FEATURE_KEYS
+        }
         reading["t_relative"] = float(target_index / max(model_timesteps - 1, 1) * window_seconds)
         resampled.append(reading)
 

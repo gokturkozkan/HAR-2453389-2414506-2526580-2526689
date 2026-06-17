@@ -24,6 +24,7 @@ from har_dataset_utils import (
     default_dataset_root,
     ensure_dir,
     local_now_iso,
+    normalize_activity,
     sanitize_token,
     write_json,
 )
@@ -51,6 +52,22 @@ ACTIVITY_GUIDELINES = {
     "walking": (
         "Walk continuously at one chosen speed. Use natural arm swing and avoid stops, "
         "phone handling, sudden turns, or standing pauses during the recording."
+    ),
+    "crouching": (
+        "Use a consistent stand-crouch cycle: stand, crouch/squat, hold briefly, stand again. "
+        "Do not sit on a chair, kneel, or pause for a long time."
+    ),
+    "x_pose": (
+        "Stand in an X-pose before warmup ends: arms raised/spread and feet apart. "
+        "Hold the pose steadily and avoid walking or turning."
+    ),
+    "punching": (
+        "Punch forward repeatedly at a steady rhythm while keeping feet mostly planted. "
+        "Use the same punching style for the whole session."
+    ),
+    "turning": (
+        "Turn in place repeatedly at a steady pace, such as left-right or full body rotations. "
+        "Avoid walking forward or mixing in punching/crouching movements."
     ),
 }
 
@@ -255,9 +272,9 @@ class TdmaHubGui:
         ttk.Label(model_controls, text="Target").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Combobox(
             model_controls,
-            values=("standing", "sitting", "walking", "lying"),
+            values=ACTIVITIES,
             textvariable=self.config_target_var,
-            width=9,
+            width=10,
             state="readonly",
         ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(model_controls, text="Test Configs", command=self.test_preprocess_configs).pack(
@@ -373,7 +390,7 @@ class TdmaHubGui:
             row1,
             values=ACTIVITIES,
             textvariable=self.dataset_activity_var,
-            width=9,
+            width=10,
             state="readonly",
         ).pack(side=tk.LEFT, padx=(0, 8))
 
@@ -426,7 +443,7 @@ class TdmaHubGui:
 
     def get_activity_guideline(self, activity):
         return ACTIVITY_GUIDELINES.get(
-            sanitize_token(activity),
+            normalize_activity(activity),
             "Keep the selected activity clean and avoid transition movements during recording.",
         )
 
@@ -1552,7 +1569,7 @@ class TdmaHubGui:
 
         try:
             participant = sanitize_token(self.dataset_participant_var.get())
-            activity = sanitize_token(self.dataset_activity_var.get())
+            activity = normalize_activity(self.dataset_activity_var.get())
             duration_seconds = self.parse_dataset_seconds(
                 self.dataset_duration_var.get(),
                 "Duration",

@@ -395,6 +395,36 @@ DEFAULT_NODE_AXIS_TRANSFORMS = parse_node_axis_transforms(axis_transform=DEFAULT
 DEFAULT_MAG_MODE = parse_mag_mode(os.getenv("PAMAP2_MAG_MODE", "raw"))
 
 
+def model_uses_own_har_preprocess(profile=None):
+    normalized = str(profile or MODEL_PROFILE or "").strip().lower()
+    return normalized in ("own", "custom", "own_har_200x27") or normalized.startswith("own_")
+
+
+def resolve_prediction_preprocess(node_order_value, axis_transform_value, node_axis_transforms_value, mag_mode_value):
+    if model_uses_own_har_preprocess():
+        axis_transform = IDENTITY_AXIS_TRANSFORM
+        return (
+            tuple(NODE_IDS),
+            axis_transform,
+            default_node_axis_transforms(axis_transform),
+            "raw",
+            True,
+        )
+
+    axis_transform = parse_axis_transform(axis_transform_value)
+
+    return (
+        parse_node_order(node_order_value),
+        axis_transform,
+        parse_node_axis_transforms(
+            node_axis_transforms_value,
+            axis_transform=axis_transform,
+        ),
+        parse_mag_mode(mag_mode_value),
+        False,
+    )
+
+
 def feature_columns_for_order(node_order):
     return tuple(
         f"model_node{model_slot}_from_source_node{source_node_id}_{feature}"
@@ -1645,13 +1675,18 @@ def predict_endpoint():
                 "received_keys": list(data.keys()),
             }), 400
 
-        node_order = parse_node_order(data.get("node_order"))
-        axis_transform = parse_axis_transform(data.get("axis_transform"))
-        node_axis_transforms = parse_node_axis_transforms(
+        (
+            node_order,
+            axis_transform,
+            node_axis_transforms,
+            mag_mode,
+            forced_identity_preprocess,
+        ) = resolve_prediction_preprocess(
+            data.get("node_order"),
+            data.get("axis_transform"),
             data.get("node_axis_transforms"),
-            axis_transform=axis_transform,
+            data.get("mag_mode"),
         )
-        mag_mode = parse_mag_mode(data.get("mag_mode"))
         resampled_window = data.get("resampled_window")
         validated_windows = validate_windows_by_node(windows_by_node)
         window_summary = summarize_windows_by_node(validated_windows)
@@ -1701,7 +1736,11 @@ def predict_endpoint():
             prob_map = calibrated_result["probabilities"]
             top_predictions = calibrated_result["top_predictions"]
 
-        order_sweep_enabled = parse_bool(data.get("order_sweep"), ORDER_SWEEP_ENABLED)
+        order_sweep_enabled = (
+            False
+            if forced_identity_preprocess
+            else parse_bool(data.get("order_sweep"), ORDER_SWEEP_ENABLED)
+        )
         order_sweep = run_order_sweep(
             validated_windows,
             axis_transform=axis_transform,
@@ -1729,6 +1768,7 @@ def predict_endpoint():
                 for node_id, node_axis in node_axis_transforms.items()
             },
             mag_mode=mag_mode,
+            forced_identity_preprocess=forced_identity_preprocess,
             resampled_window=resampled_window,
             use_live_calibration=use_live_calibration,
             order_sweep_enabled=order_sweep_enabled,
@@ -1750,6 +1790,7 @@ def predict_endpoint():
                 for node_id, node_axis in node_axis_transforms.items()
             },
             mag_mode=mag_mode,
+            forced_identity_preprocess=forced_identity_preprocess,
             resampled_window=resampled_window,
             use_live_calibration=use_live_calibration,
             order_sweep_enabled=order_sweep_enabled,
@@ -1781,6 +1822,7 @@ def predict_endpoint():
                 for node_id, node_axis in node_axis_transforms.items()
             },
             "mag_mode": mag_mode,
+            "forced_identity_preprocess": forced_identity_preprocess,
             "resampled_window": resampled_window,
             "use_live_calibration": use_live_calibration,
             "classifier": classifier,

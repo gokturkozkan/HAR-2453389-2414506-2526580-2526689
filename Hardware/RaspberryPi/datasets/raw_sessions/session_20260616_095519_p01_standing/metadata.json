@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260616_095519_p01_standing",
+  "participant_id": "p01",
+  "activity": "standing",
+  "started_at": "2026-06-16T09:55:19.915017+03:00",
+  "duration_seconds": 180.0,
+  "warmup_seconds": 5.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Stand naturally in place with both feet on the floor. Keep arms relaxed, small natural body sway is okay, but do not walk, sit, turn around, or lean heavily.",
+  "status": "completed",
+  "finished_at": "2026-06-16T09:58:25.037704+03:00",
+  "sample_count": 1800,
+  "node_sample_counts": {
+    "1": 600,
+    "2": 600,
+    "3": 600
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260616_095519_p01_standing/raw_samples.jsonl"
+}

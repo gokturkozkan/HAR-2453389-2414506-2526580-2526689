@@ -154,3 +154,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Generated HAR dataset windows; too large for normal GitHub pushes.
+/Hardware/RaspberryPi/datasets/processed/windows_200x27.jsonl

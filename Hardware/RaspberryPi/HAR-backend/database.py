@@ -137,7 +137,16 @@ def seed_esp_devices():
 
 def seed_mock_unity_images():
     images_dir = Path(__file__).parent / "label_images"
-    files = ["standing.png", "walking.png", "sitting.png", "lying.png"]
+    files = [
+        "standing.png",
+        "walking.png",
+        "sitting.png",
+        "lying.png",
+        "crouching.png",
+        "x_pose.png",
+        "punching.png",
+        "turning.png",
+    ]
 
     if not images_dir.exists():
         return

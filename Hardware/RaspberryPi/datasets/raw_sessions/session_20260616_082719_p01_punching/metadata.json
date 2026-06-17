@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260616_082719_p01_punching",
+  "participant_id": "p01",
+  "activity": "punching",
+  "started_at": "2026-06-16T08:27:19.787264+03:00",
+  "duration_seconds": 60.0,
+  "warmup_seconds": 5.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Punch forward repeatedly at a steady rhythm while keeping feet mostly planted. Use the same punching style for the whole session.",
+  "status": "completed",
+  "finished_at": "2026-06-16T08:28:24.842924+03:00",
+  "sample_count": 600,
+  "node_sample_counts": {
+    "1": 200,
+    "2": 200,
+    "3": 200
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260616_082719_p01_punching/raw_samples.jsonl"
+}

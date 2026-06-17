@@ -14,6 +14,7 @@ from har_dataset_utils import (
     default_dataset_root,
     ensure_dir,
     local_now_iso,
+    normalize_activity,
     sanitize_token,
     write_json,
     append_jsonl,
@@ -96,7 +97,11 @@ class NodeReader:
 def build_arg_parser():
     parser = argparse.ArgumentParser(description="Collect raw HAR samples from the three ESP32 nodes.")
     parser.add_argument("--participant", required=True, help="Participant id, e.g. p01")
-    parser.add_argument("--activity", required=True, choices=ACTIVITIES)
+    parser.add_argument(
+        "--activity",
+        required=True,
+        help=f"Activity label. Supported: {', '.join(ACTIVITIES)}",
+    )
     parser.add_argument("--duration", required=True, type=float, help="Recorded seconds after warmup")
     parser.add_argument("--notes", default="")
     parser.add_argument("--warmup", type=float, default=5.0)
@@ -109,7 +114,11 @@ def build_arg_parser():
 def main():
     args = build_arg_parser().parse_args()
     participant = sanitize_token(args.participant)
-    activity = sanitize_token(args.activity)
+    activity = normalize_activity(args.activity)
+
+    if activity not in ACTIVITIES:
+        raise SystemExit(f"Activity must be one of: {', '.join(ACTIVITIES)}")
+
     started = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_id = f"session_{started}_{participant}_{activity}"
     session_dir = ensure_dir(os.path.join(args.dataset_root, "raw_sessions", session_id))
