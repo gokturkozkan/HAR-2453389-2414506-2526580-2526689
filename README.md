@@ -1,6 +1,9 @@
+
 # Human Activity Recognition System (HAR)
 
 Edge-computable Human Activity Recognition system built with wearable IMU sensors, a Raspberry Pi hub, a mobile Activity Labeling App, and a Unity-based visualisation environment. The system collects multimodal motion data (accelerometer + gyroscope), performs lightweight on-device ML inference, and supports interactive activity labeling for dataset creation and model improvement.
+
+The Unity visualisation/game component is used within the system loop, but it is maintained as a separate dependency in [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game).
 
 ---
 
@@ -72,6 +75,7 @@ The architecture follows a modular pipeline, as detailed in the SDD’s logical,
 - **Unity Application**
   - Receives activity labels from the mobile app or hub.
   - Visualises the user avatar and activities in a 3D/VR environment.
+  - Maintained separately as the [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game) dependency.
 
 ### Data Flow (Overview)
 
@@ -114,7 +118,7 @@ As shown in the **Level-0 DFD and activity diagrams in the SDD (pages 5–11)**:
   - Android smartphone for the Activity Labeling App
   - Development PC with:
     - Android Studio / React Native toolchain
-    - Unity (version as used in this repo)
+    - Unity version required by [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game)
 
 ---
 
@@ -123,13 +127,14 @@ As shown in the **Level-0 DFD and activity diagrams in the SDD (pages 5–11)**:
 - **Languages**
   - Python – data handling, preprocessing, and ML inference on the hub
   - JavaScript / TypeScript – mobile app (React Native or similar)
-  - C# – Unity visualiser
+  - C# – Unity visualiser, maintained in [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game)
   - C/C++ / Arduino-style code – ESP32 firmware
 
 - **Key Technologies**
   - Bluetooth communication between ESP32 nodes and Raspberry Pi
   - Local JSON- and CSV-based storage on Raspberry Pi (no cloud DB)
   - On-device ML models (lightweight architectures)
+  - External Unity visualizer/game dependency: [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game)
 
 ---
 
@@ -144,9 +149,11 @@ As shown in the **Level-0 DFD and activity diagrams in the SDD (pages 5–11)**:
 │   └── ESP32/
 ├── Mobile/                  # Activity Labeling App (React Native / Android)
 │   └── assets/
-├── Unity/                   # Unity project for avatar/activity visualisation
 ├── data/                    # Dataset and logs
 ├── docs/                    # SRS, SDD, etc..
 │   ├── CNG491-SRS-....pdf   # Software Requirements Specification (SRS)
 │   └── CNG491-SDD-....pdf   # Software Design Description (SDD)
 └── README.md                # You are here :)
+```
+
+Unity project files are not stored directly in this repository. The Unity visualisation/game dependency is maintained in [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game).
