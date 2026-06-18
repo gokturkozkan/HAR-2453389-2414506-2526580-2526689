@@ -1,69 +1,64 @@
-import socket
-import json
-from datetime import datetime
-import hmac
 import hashlib
+import hmac
+import json
 import random
+import socket
 import string
+from datetime import datetime
+
 
 DISCOVERY_PORT = 5006
-DISCOVERY_TIMEOUT = 3.0  # seconds
-
-# Must match SALT in bridge_server.py
+DISCOVERY_TIMEOUT = 3.0
 SALT = b"unity-bridge-salt-01"
 
+
 def generate_pairing_code(length=6) -> str:
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
 
 def compute_secret_hash(code: str) -> str:
     return hmac.new(SALT, code.encode("utf-8"), hashlib.sha256).hexdigest()
 
+
 def discover_bridge(secret_hash: str):
     message = f"DISCOVER {secret_hash}".encode("utf-8")
 
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.settimeout(DISCOVERY_TIMEOUT)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(DISCOVERY_TIMEOUT)
 
         print("Searching for Unity bridge...")
-        s.sendto(message, ("255.255.255.255", DISCOVERY_PORT))
+        sock.sendto(message, ("255.255.255.255", DISCOVERY_PORT))
 
         while True:
-            try:
-                data, addr = s.recvfrom(1024)
-            except socket.timeout:
-                raise TimeoutError("No Unity bridge found.")
-
+            data, addr = sock.recvfrom(1024)
             reply = data.decode("utf-8", errors="ignore").strip()
             print(f"Reply from {addr}: {reply}")
 
             if reply.startswith("BRIDGE_OK "):
-                port_str = reply.split(" ", 1)[1]
-                port = int(port_str)
-                ip = addr[0]
-                print(f"Bridge located at {ip}:{port}")
-                return ip, port
+                port = int(reply.split(" ", 1)[1])
+                return addr[0], port
+
 
 class UnityRemoteClient:
-    def __init__(self):
-        # Generate pairing code on remote side
-        self.pairing_code = generate_pairing_code()
+    def __init__(self, pairing_code=None):
+        self.pairing_code = (pairing_code or generate_pairing_code()).strip()
         self.secret_hash = compute_secret_hash(self.pairing_code)
         self.sock = None
         self.host = None
         self.port = None
 
     def show_pairing_code(self):
-        print("\n")
-        print("  REMOTE CONTROLLER STARTED ")
+        print("")
+        print("HARVR REMOTE CONTROLLER")
         print("")
         print("PAIRING CODE:")
         print(f"    {self.pairing_code}")
         print("")
-        print("1) Start/Play the Unity application.")
-        print("2) Enter this code in Unity's 'pairingCode' field.")
-        print("3) Press ENTER here to connect.\n")
-        input("Press ENTER once Unity is ready with this code...")
+        print("1) Start Play Mode in Unity.")
+        print("2) Start the bridge with the same pairing code.")
+        print("3) Press ENTER here to connect.")
+        input("Press ENTER once Unity is ready...")
 
     def connect(self):
         self.host, self.port = discover_bridge(self.secret_hash)
@@ -74,45 +69,47 @@ class UnityRemoteClient:
 
     def close(self):
         if self.sock:
-            try:
-                self.sock.close()
-            except:
-                pass
+            self.sock.close()
+            self.sock = None
             print("Disconnected.")
 
     def send_label(self, label: str):
-        msg = {
+        message = {
             "label": label,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "source": "remote-python",
-            "secret": self.secret_hash
+            "secret": self.secret_hash,
         }
-        line = json.dumps(msg, ensure_ascii=False) + "\n"
+        line = json.dumps(message, ensure_ascii=False) + "\n"
         self.sock.sendall(line.encode("utf-8"))
-        print(f"sent message: {msg}")
+        print(f"sent: {message}")
+
 
 def interactive_cli():
-    client = UnityRemoteClient()
+    pairing_code = input("Pairing code (blank to generate): ").strip() or None
+    client = UnityRemoteClient(pairing_code)
     client.show_pairing_code()
 
     try:
         client.connect()
 
-        print("\nType label")
-        print("Type 'quit' to exit.\n")
+        print("")
+        print("Type labels: walking, crouching, punching, idle")
+        print("Type quit to exit.")
+        print("")
 
         while True:
-            cmd = input("label> ").strip()
-            if not cmd:
+            command = input("label> ").strip()
+            if not command:
                 continue
-            if cmd.lower() in ("quit", "exit"):
+            if command.lower() in ("quit", "exit"):
                 break
-            client.send_label(cmd)
-
-    except Exception as e:
-        print(f" {e}")
+            client.send_label(command)
+    except Exception as error:
+        print(error)
     finally:
         client.close()
+
 
 if __name__ == "__main__":
     interactive_cli()

@@ -1,0 +1,10 @@
+$ .venv/bin/python test_results/performance_benchmark.py
+GET /health: mean=0.45ms median=0.392ms p95=0.541ms success=50/50
+GET /esp-status: mean=0.318ms median=0.304ms p95=0.464ms success=50/50
+GET /label: mean=2.422ms median=2.583ms p95=2.729ms success=50/50
+POST /predict: mean=28.635ms median=27.98ms p95=29.895ms success=15/15
+POST /calibration/sample: mean=9.811ms median=9.934ms p95=10.804ms success=15/15
+CPU time: 5.083s
+Max RSS: 531.422MB
+Wrote /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/test_results/performance_results.json
+Wrote /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/test_results/performance_testing_report.md

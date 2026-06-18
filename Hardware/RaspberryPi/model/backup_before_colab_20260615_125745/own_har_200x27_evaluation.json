@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-06-15T09:35:01.991089+00:00",
+  "model_profile": "own_har_200x27",
+  "evaluated_split": "test:session",
+  "sample_count": 304,
+  "accuracy": 1.0,
+  "classification_report": {
+    "lying": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 76.0
+    },
+    "sitting": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 114.0
+    },
+    "standing": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 76.0
+    },
+    "walking": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 38.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 304.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 304.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      76,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      114,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      76,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      38
+    ]
+  ],
+  "labels": [
+    "lying",
+    "sitting",
+    "standing",
+    "walking"
+  ],
+  "files": {
+    "model": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/../model/own_har_200x27_model.keras",
+    "scaler": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/../model/own_har_200x27_scaler.pkl",
+    "label_encoder": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/../model/own_har_200x27_label_encoder.pkl",
+    "windows": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/processed/windows_200x27.jsonl"
+  }
+}

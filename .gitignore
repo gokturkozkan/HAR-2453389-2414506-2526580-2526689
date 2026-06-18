@@ -125,3 +125,35 @@ yarn-error.*
 # generated native folders
 /HAR-app/ios
 /HAR-app/android
+
+# =========================================================
+# Python / local runtime
+# =========================================================
+
+# virtual environments
+.venv/
+venv/
+env/
+ENV/
+**/.venv/
+**/venv/
+**/env/
+
+# bytecode / caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# local data / secrets
+*.db
+*.db-journal
+.env
+.env.*
+!.env.example
+
+# Generated HAR dataset windows; too large for normal GitHub pushes.
+/Hardware/RaspberryPi/datasets/processed/windows_200x27.jsonl

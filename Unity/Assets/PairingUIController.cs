@@ -1,33 +1,43 @@
+using TMPro;
 using UnityEngine;
-using TMPro;   // For TMP_InputField
 
-public class PairingUIController : MonoBehaviour
+public sealed class PairingUIController : MonoBehaviour
 {
-    [Header("References")]
-    [Tooltip("Reference to the PythonLabelBridge component in the scene.")]
     public PythonBridgeLauncher pythonBridge;
-
-    [Tooltip("Input field where the user types the pairing code shown on the REMOTE controller.")]
+    public HarBridgeLauncher harBridge;
     public TMP_InputField pairingInputField;
+    public bool clearFieldAfterConnect;
 
-    [Header("Options")]
-    [Tooltip("Start the bridge automatically as soon as a non-empty code is entered and button is pressed.")]
-    public bool clearFieldAfterConnect = false;
-
-    /// <summary>
-    /// Call this from a UI Button's OnClick() event.
-    /// </summary>
     public void OnConnectButtonClicked()
     {
-        string code = pairingInputField.text.Trim();
-        if (string.IsNullOrEmpty(code))
+        HarBridgeLauncher launcher = pythonBridge != null ? pythonBridge : harBridge;
+
+        if (launcher == null)
+            launcher = FindAnyObjectByType<HarBridgeLauncher>();
+
+        if (pythonBridge == null)
+            pythonBridge = FindAnyObjectByType<PythonBridgeLauncher>();
+
+        if (launcher == null)
+        {
+            Debug.LogWarning("[PairingUIController] Python bridge is missing.");
+            return;
+        }
+
+        string code = pairingInputField != null ? pairingInputField.text.Trim() : "";
+
+        if (string.IsNullOrWhiteSpace(code))
         {
             Debug.LogWarning("[PairingUIController] Pairing code is empty.");
             return;
         }
 
-        pythonBridge.pairingCode = code;
-        pythonBridge.StartBridgeIfNeeded();
+        launcher.SetPairingCode(code);
+        launcher.StartBridgeIfNeeded();
+
+        if (clearFieldAfterConnect && pairingInputField != null)
+            pairingInputField.text = "";
+
         Debug.Log($"[PairingUIController] Bridge start requested with code: {code}");
     }
 }

@@ -1,32 +1,29 @@
-import socket
-import threading
-import json
-import random
-import string
-import time
-import hmac
 import hashlib
+import hmac
+import json
+import socket
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
 
-#config part
 HOST = "0.0.0.0"
 TCP_PORT = 5005
 DISCOVERY_PORT = 5006
 LOG_FILE = Path("unity_commands.log")
-
-PAIRING_WINDOW_SECONDS = 120  #pairin window
+PAIRING_WINDOW_SECONDS = 120
 
 SALT = b"unity-bridge-salt-01"
 SECRET_HASH = None
 PAIRING_START_TIME = time.time()
 ALLOWED_IP = None
 
-#hashing and init
+
 def compute_secret_hash(code: str) -> str:
     return hmac.new(SALT, code.encode("utf-8"), hashlib.sha256).hexdigest()
+
 
 def init_secret_from_argv():
     global SECRET_HASH, PAIRING_START_TIME
@@ -46,125 +43,127 @@ def init_secret_from_argv():
     SECRET_HASH = compute_secret_hash(pairing_code)
     PAIRING_START_TIME = time.time()
 
-    print(" UNITY BRIDGE STARTED ")
-    print("PAIRING MODE:")
-    print(f"  Pairing code provided by Unity: '{pairing_code}'")
-    print(f"  Pairing window: {PAIRING_WINDOW_SECONDS} seconds")
+    print("HARVR UNITY BRIDGE STARTED")
+    print("PAIRING MODE")
+    print(f"Pairing code: {pairing_code}")
+    print(f"Pairing window: {PAIRING_WINDOW_SECONDS} seconds")
 
-#data log part
+
 def log_message(message_dict):
-    """
-    Instead of appending lines, always overwrite unity_commands.log
-    with ONLY the latest JSON object. So the file always contains
-    a single JSON object.
-    """
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     if "timestamp" not in message_dict:
         message_dict["timestamp"] = datetime.utcnow().isoformat() + "Z"
 
-    # overwrite file so tehre is only 1 data line
-    with LOG_FILE.open("w", encoding="utf-8") as f:
-        json.dump(message_dict, f, ensure_ascii=False)
+    with LOG_FILE.open("w", encoding="utf-8") as log_file:
+        json.dump(message_dict, log_file, ensure_ascii=False)
 
-#tcp handling
+
 def handle_client(conn, addr):
     global ALLOWED_IP
-    client_ip, client_port = addr
 
-    # ip restriction
+    client_ip, _ = addr
+
     if ALLOWED_IP is not None and client_ip != ALLOWED_IP:
-        print(f"TCP from disallowed IP {client_ip} exit.")
+        print(f"TCP from disallowed IP {client_ip}; closing.")
         conn.close()
         return
 
-    print(f"New connection from {addr}")
+    print(f"New TCP connection from {addr}")
 
     with conn:
         buffer = ""
+
         while True:
             data = conn.recv(1024)
+
             if not data:
                 print(f"Connection closed by {addr}")
                 break
 
             buffer += data.decode("utf-8")
+
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
                 line = line.strip()
+
                 if not line:
                     continue
 
                 try:
-                    msg = json.loads(line)
+                    message = json.loads(line)
                 except Exception:
-                    print(f"Invalid JSON {addr}: {line}")
+                    print(f"Invalid JSON from {addr}: {line}")
                     continue
 
-                if msg.get("secret") != SECRET_HASH:
-                    print(f"Invalid tkn.")
+                if message.get("secret") != SECRET_HASH:
+                    print("Invalid bridge secret.")
                     continue
 
                 if ALLOWED_IP is None:
                     ALLOWED_IP = client_ip
                     print(f"Client IP locked to {ALLOWED_IP}")
 
-                print(f"running fine {addr}: {msg}")
-                log_message(msg)
+                print(f"Activity received: {message}")
+                log_message(message)
+
 
 def tcp_server():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, TCP_PORT))
-        s.listen()
-        print(f"Server listening on {HOST}:{TCP_PORT}")
-        print(f" Logging: {LOG_FILE.resolve()}")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+        server_socket.bind((HOST, TCP_PORT))
+        server_socket.listen()
+        print(f"TCP server listening on {HOST}:{TCP_PORT}")
+        print(f"Logging latest activity to: {LOG_FILE.resolve()}")
 
         while True:
-            conn, addr = s.accept()
-            threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+            conn, addr = server_socket.accept()
+            thread = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+            thread.start()
+
 
 def udp_discovery():
     global ALLOWED_IP
 
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.bind((HOST, DISCOVERY_PORT))
-        print(f"UDP discovery opened (I hope this is not going to create critical vulnerability for project) {HOST}:{DISCOVERY_PORT}")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as discovery_socket:
+        discovery_socket.bind((HOST, DISCOVERY_PORT))
+        print(f"UDP discovery listening on {HOST}:{DISCOVERY_PORT}")
 
         while True:
-            data, addr = s.recvfrom(1024)
-            client_ip, client_port = addr
-            txt = data.decode("utf-8", errors="ignore").strip()
+            data, addr = discovery_socket.recvfrom(1024)
+            client_ip, _ = addr
+            text = data.decode("utf-8", errors="ignore").strip()
 
-            if not txt.startswith("DISCOVER "):
+            if not text.startswith("DISCOVER "):
                 continue
 
-            their_hash = txt.split(" ", 1)[1]
+            their_hash = text.split(" ", 1)[1]
 
             if ALLOWED_IP is None:
                 elapsed = time.time() - PAIRING_START_TIME
                 if elapsed > PAIRING_WINDOW_SECONDS:
-                    print(f"Pairing window expired.")
+                    print("Pairing window expired.")
                     continue
 
             if their_hash != SECRET_HASH:
-                print(f"Wrong discovery tkn hash")
+                print("Wrong discovery hash.")
                 continue
 
             if ALLOWED_IP is None:
                 ALLOWED_IP = client_ip
-                print(f"Valid client, locked IP to {ALLOWED_IP}")
+                print(f"Valid client; locked IP to {ALLOWED_IP}")
             elif client_ip != ALLOWED_IP:
-                print(f"Valid hash but wrong IP {client_ip}")
+                print(f"Valid hash from wrong IP {client_ip}; ignoring.")
                 continue
 
             reply = f"BRIDGE_OK {TCP_PORT}"
-            s.sendto(reply.encode("utf-8"), addr)
+            discovery_socket.sendto(reply.encode("utf-8"), addr)
+
 
 if __name__ == "__main__":
     try:
         init_secret_from_argv()
         threading.Thread(target=udp_discovery, daemon=True).start()
         tcp_server()
-    except Exception as e:
-        print(f"\nUnhandled exception in bridge_server.py: {e}")
+    except Exception as error:
+        print(f"Unhandled bridge exception: {error}")
         input("Press ENTER to close...")

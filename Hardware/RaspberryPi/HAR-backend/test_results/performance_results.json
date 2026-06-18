@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-05-10T21:28:21.188538+00:00",
+  "benchmarks": [
+    {
+      "name": "GET /health",
+      "iterations": 50,
+      "success_count": 50,
+      "failure_count": 0,
+      "min_ms": 0.374,
+      "median_ms": 0.387,
+      "mean_ms": 0.446,
+      "p95_ms": 0.536,
+      "max_ms": 1.923
+    },
+    {
+      "name": "GET /esp-status",
+      "iterations": 50,
+      "success_count": 50,
+      "failure_count": 0,
+      "min_ms": 0.295,
+      "median_ms": 0.304,
+      "mean_ms": 0.315,
+      "p95_ms": 0.41,
+      "max_ms": 0.487
+    },
+    {
+      "name": "GET /label",
+      "iterations": 50,
+      "success_count": 50,
+      "failure_count": 0,
+      "min_ms": 1.956,
+      "median_ms": 1.987,
+      "mean_ms": 2.024,
+      "p95_ms": 2.164,
+      "max_ms": 3.274
+    },
+    {
+      "name": "POST /predict",
+      "iterations": 15,
+      "success_count": 15,
+      "failure_count": 0,
+      "min_ms": 27.403,
+      "median_ms": 27.517,
+      "mean_ms": 27.591,
+      "p95_ms": 28.133,
+      "max_ms": 28.19
+    },
+    {
+      "name": "POST /calibration/sample",
+      "iterations": 15,
+      "success_count": 15,
+      "failure_count": 0,
+      "min_ms": 8.579,
+      "median_ms": 9.894,
+      "mean_ms": 9.817,
+      "p95_ms": 10.851,
+      "max_ms": 10.992
+    }
+  ],
+  "resource_usage": {
+    "cpu_time_seconds": 4.42,
+    "max_rss_mb": 527.094
+  }
+}

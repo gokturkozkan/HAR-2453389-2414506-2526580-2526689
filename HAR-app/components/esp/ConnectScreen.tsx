@@ -1,124 +1,328 @@
-import React, { useContext, useEffect, useState } from "react";
-import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  View,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  Pressable,
+} from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
-import { EspId, EspStatus } from "@/app/types/espTypes";
-import { espStatusApi } from "@/app/apis/espStatusApi";
+import { EspCommandAction, EspStatus } from "@/app/types/espTypes";
+import { espStatusApi } from "@/apis/espStatusApi";
 import { ConnectionContext } from "../../app/contexts/ConnectionContext";
 
+const NODE_IDS = [1, 2, 3];
+const STATUS_TIMEOUT_MS = 10000;
+const STATUS_POLL_MS = 3000;
+const ACTION_TIMEOUT_MS: Record<EspCommandAction, number> = {
+  connect: 30000,
+  disconnect: 10000,
+  reconnect: 35000,
+  probe: 8000,
+};
+const RFCOMM_REBIND_TIMEOUT_MS = 35000;
+const START_RECEIVING_TIMEOUT_MS = 8000;
+
+const RECEIVING_STATUSES = new Set([
+  "open",
+  "ready",
+  "receiving",
+  "open - no data",
+  "open - unreadable",
+]);
+
+const initialNodes = (): EspStatus[] =>
+  NODE_IDS.map((id) => ({
+    id,
+    isConnected: null,
+    status: "Unknown",
+  }));
+
+const isNodeConnected = (node: EspStatus) => {
+  const status = node.status?.trim().toLowerCase();
+
+  return node.isConnected === true || Boolean(status && RECEIVING_STATUSES.has(status));
+};
+
+const normalizeNodes = (
+  nodes: EspStatus[],
+  current: EspStatus[],
+): EspStatus[] => {
+  return NODE_IDS.map((id) => {
+    const previous = current.find((node) => node.id === id);
+    const next = nodes.find((node) => node.id === id);
+    const normalizedNode: EspStatus = {
+      ...(previous || { id, isConnected: null, status: "Unknown" }),
+      ...(next || {}),
+      id,
+    };
+
+    if (next && next.isConnected === false && !next.status) {
+      normalizedNode.status = "Disconnected";
+    }
+
+    return {
+      ...normalizedNode,
+      isConnected: isNodeConnected(normalizedNode),
+    };
+  });
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out")), ms)
+    ),
+  ]);
+};
+
 export default function ConnectScreen() {
-  const [esps, setEsps] = useState<EspStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [connectingId, setConnectingId] = useState<number | null>(null);
-  const [espStatus, setEspStatus] = useState<EspStatus[]>([]);
-  const { getEspStatus, getEsp } = espStatusApi();
-  const { connection, setConnection } = useContext(ConnectionContext);
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
 
-  const fetchEsps = async (initial: boolean = false) => {
-    if (initial) setLoading(true);
-    try {
+  const [esps, setEsps] = useState<EspStatus[]>(initialNodes);
+  const [pendingAction, setPendingAction] = useState<{
+    id: number;
+    action: EspCommandAction;
+  } | null>(null);
+  const [rebindRunning, setRebindRunning] = useState(false);
+  const [receivingRunning, setReceivingRunning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const pendingActionRef = useRef(false);
+  const espsRef = useRef<EspStatus[]>(initialNodes());
+
+  const api = useMemo(() => espStatusApi(), []);
+  const { setConnection } = useContext(ConnectionContext);
+  const updateEsps = useCallback((updater: (current: EspStatus[]) => EspStatus[]) => {
+    const next = updater(espsRef.current);
+    espsRef.current = next;
+    setEsps(next);
+
+    return next;
+  }, []);
+
+  const fetchEsps = useCallback(
+    async (initial = false, force = false) => {
+      if (!initial && pendingActionRef.current && !force) return;
+
       try {
-        const data = await getEsp();
-        setEsps((prev) => {
-          const prevMap = new Map(prev.map((e) => [e.id, e.isConnected]));
-          return data.map((d: EspId) => ({
-            id: d.id,
-            isConnected: prevMap.get(d.id) ?? null,
-          }));
-        });
-      } catch (e: any) {
-        console.error("ESP fetch error:", e.message);
-      }
-    } catch (e) {
-      console.error("Failed to fetch ESPs", e);
-    } finally {
-      if (initial) setLoading(false);
-    }
-  };
+        setErrorMessage(null);
 
-  const onConnect = async (id: number) => {
-    setConnectingId(id);
-    try {
-      const data = await getEspStatus(id);
-      setEsps((prev) => {
-        const updated = prev.map((esp) => (
-          esp.id === id ? { ...esp, isConnected: data.isConnected } : esp
-        ));
-        
-        // Check connection status after updating
-        const allConnected = updated.every((esp) => esp.isConnected === true);
-        console.log("After update - all connected:", allConnected);
+        const data = await withTimeout(api.getAllEspStatus(), STATUS_TIMEOUT_MS);
+        const nextEsps = updateEsps((current) => normalizeNodes(data, current));
+
+        const allConnected =
+          nextEsps.length === 3 &&
+          nextEsps.every(isNodeConnected);
+
         setConnection(allConnected);
-        console.log(connection)
-        return updated;
-      });
+      } catch (e: any) {
+        console.error("ESP fetch error:", e);
+
+        if (initial || force) {
+          setErrorMessage(
+            `Status refresh delayed; keeping last known state. ${
+              e?.message || "Could not load nodes"
+            }`
+          );
+        }
+      }
+    },
+    [api, setConnection, updateEsps]
+  );
+
+  const handleNodeAction = useCallback(
+    async (id: number, action: EspCommandAction) => {
+      if (pendingActionRef.current) return;
+
+      pendingActionRef.current = true;
+      setPendingAction({ id, action });
+      setErrorMessage(null);
+      updateEsps((current) =>
+        current.map((esp) =>
+          esp.id === id
+            ? {
+                ...esp,
+                status: action === "reconnect" ? "Reconnecting" : esp.status,
+                detail:
+                  action === "reconnect"
+                    ? "Closing, rebinding, opening, then requesting a sample."
+                    : esp.detail,
+              }
+            : esp
+        )
+      );
+
+      try {
+        const updatedNode = await withTimeout(
+          api.runEspCommand(id, action),
+          ACTION_TIMEOUT_MS[action]
+        );
+
+        updateEsps((current) =>
+          current.map((esp) =>
+            esp.id === id
+              ? {
+                  ...esp,
+                  ...updatedNode,
+                  isConnected: isNodeConnected(updatedNode),
+                }
+              : esp
+          )
+        );
+
+        await fetchEsps(false, true);
+      } catch (e: any) {
+        console.error("ESP command error:", e);
+        const message = e?.message || `Could not ${action} node ${id}`;
+
+        try {
+          await fetchEsps(false, true);
+        } catch {
+          // Keep the last known state when a refresh fails after an action.
+        } finally {
+          setErrorMessage(message);
+        }
+      } finally {
+        pendingActionRef.current = false;
+        setPendingAction(null);
+      }
+    },
+    [api, fetchEsps, updateEsps]
+  );
+
+  const handleRebindRfcomm = useCallback(async () => {
+    if (pendingActionRef.current || rebindRunning || receivingRunning) return;
+
+    pendingActionRef.current = true;
+    setRebindRunning(true);
+    setErrorMessage(null);
+    setConnection(false);
+    updateEsps((current) =>
+      current.map((esp) => ({
+        ...esp,
+        isConnected: false,
+        status: "Rebinding",
+        detail: "Closing serial ports and running rfcommstarter.sh.",
+      }))
+    );
+
+    try {
+      await withTimeout(api.rebindRfcomm(), RFCOMM_REBIND_TIMEOUT_MS);
+      await fetchEsps(false, true);
+    } catch (e: any) {
+      console.error("rfcomm rebind error:", e);
+      setErrorMessage(e?.message || "Could not rebind rfcomm");
+      await fetchEsps(false, true).catch(() => undefined);
     } finally {
-      setConnectingId(null);
+      pendingActionRef.current = false;
+      setRebindRunning(false);
     }
-  }
+  }, [api, fetchEsps, receivingRunning, rebindRunning, setConnection, updateEsps]);
+
+  const handleStartReceiving = useCallback(async () => {
+    if (pendingActionRef.current || receivingRunning || rebindRunning) return;
+
+    pendingActionRef.current = true;
+    setReceivingRunning(true);
+    setErrorMessage(null);
+    updateEsps((current) =>
+      current.map((esp) =>
+        isNodeConnected(esp)
+          ? {
+              ...esp,
+              status: "Receiving",
+              detail: "Starting receive loop.",
+            }
+          : esp
+      )
+    );
+
+    try {
+      await withTimeout(api.startReceiving(), START_RECEIVING_TIMEOUT_MS);
+      await fetchEsps(false, true);
+    } catch (e: any) {
+      console.error("start receiving error:", e);
+      setErrorMessage(e?.message || "Could not start receiving data");
+      await fetchEsps(false, true).catch(() => undefined);
+    } finally {
+      pendingActionRef.current = false;
+      setReceivingRunning(false);
+    }
+  }, [api, fetchEsps, receivingRunning, rebindRunning, updateEsps]);
 
   useEffect(() => {
     fetchEsps(true);
-  }, []);
 
-  // Periodically check connection status
-  useEffect(() => {
-    if (esps.length === 0) return;
-
-    const checkConnections = async () => {
-      try {
-        // Only check if we think we're connected
-        const connectedEsps = esps.filter(esp => esp.isConnected === true);
-        if (connectedEsps.length === 0) return;
-
-        // Check each connected ESP
-        const statusPromises = connectedEsps.map(esp => 
-          getEspStatus(esp.id).catch(() => ({ isConnected: false }))
-        );
-        
-        const statuses = await Promise.all(statusPromises);
-        
-        setEsps((prev) => {
-          const updated = prev.map((esp, index) => {
-            const connectedIndex = connectedEsps.findIndex(e => e.id === esp.id);
-            if (connectedIndex !== -1) {
-              return { ...esp, isConnected: statuses[connectedIndex].isConnected };
-            }
-            return esp;
-          });
-          
-          const allConnected = updated.every((esp) => esp.isConnected === true);
-          setConnection(allConnected);
-          return updated;
-        });
-      } catch (e) {
-        console.error("Failed to check connection status", e);
-      }
-    };
-
-    // Check every 5 seconds
-    const interval = setInterval(checkConnections, 5000);
+    const interval = setInterval(() => {
+      fetchEsps(false);
+    }, STATUS_POLL_MS);
 
     return () => clearInterval(interval);
-  }, [esps.length, connection]);
+  }, [fetchEsps]);
 
-  if(loading) {
-    return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Loading devices...</Text>
-      </View>
-    );
-  }
   return (
     <View style={styles.screen}>
-      {connectingId !== null && (
-        <View style={styles.disabledOverlay}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.overlayText}>Connecting to devices...</Text>
+      <View style={[styles.card, isDesktop && styles.cardDesktop]}>
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>Device Connection</Text>
+          <Text style={styles.title}>3-Node HAR Setup</Text>
+          <Text style={styles.subtitle}>
+            Node 1 wrist, Node 2 chest, Node 3 ankle.
+          </Text>
         </View>
-      )}
-      <View style={styles.tableContainer}>
-        <EspConnectionTable esps={esps} onConnect={onConnect} loadingId={connectingId}/>
+
+        {errorMessage && (
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        )}
+
+        <EspConnectionTable
+          esps={esps}
+          onAction={handleNodeAction}
+          pendingAction={pendingAction}
+        />
+
+        <View style={styles.actionRow}>
+          <Pressable
+            style={[
+              styles.receiveButton,
+              (receivingRunning || rebindRunning || Boolean(pendingAction)) &&
+                styles.disabledButton,
+            ]}
+            onPress={handleStartReceiving}
+            disabled={receivingRunning || rebindRunning || Boolean(pendingAction)}
+          >
+            <Text style={styles.receiveText}>
+              {receivingRunning ? "Starting receiving..." : "Start Receiving Data"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.rebindButton,
+              (rebindRunning || receivingRunning || Boolean(pendingAction)) &&
+                styles.disabledButton,
+            ]}
+            onPress={handleRebindRfcomm}
+            disabled={rebindRunning || receivingRunning || Boolean(pendingAction)}
+          >
+            <Text style={styles.rebindText}>
+              {rebindRunning ? "Rebinding rfcomm..." : "Rebind rfcomm"}
+            </Text>
+          </Pressable>
+
+          <Pressable style={styles.retryButton} onPress={() => fetchEsps(false)}>
+            <Text style={styles.retryText}>Refresh</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -127,31 +331,98 @@ export default function ConnectScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    padding: 16,
+    backgroundColor: "#eef2ff",
+    padding: 20,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  loadingScreen: {
+  card: {
+    width: "100%",
+    maxWidth: 620,
+    backgroundColor: "white",
+    borderRadius: 28,
+    padding: 22,
+  },
+  cardDesktop: {
+    padding: 32,
+  },
+  header: {
+    marginBottom: 20,
+  },
+  eyebrow: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#2563eb",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  subtitle: {
+    marginTop: 8,
+    fontSize: 15,
+    color: "#64748b",
+    lineHeight: 22,
+  },
+  errorText: {
+    marginTop: 12,
+    marginBottom: 12,
+    color: "#dc2626",
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  actionRow: {
+    marginTop: 16,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  retryButton: {
     flex: 1,
+    minWidth: 140,
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
   },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 16,
-    color: "#4b5563",
-  },
-  tableContainer: {
-    paddingTop: 48,
-  },
-  disabledOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 10,
-  },
-  overlayText: {
+  retryText: {
     color: "white",
-    fontSize: 16,
-    marginTop: 8,
+    fontWeight: "800",
+  },
+  rebindButton: {
+    flex: 1,
+    minWidth: 180,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  rebindText: {
+    color: "#2563eb",
+    fontWeight: "800",
+  },
+  receiveButton: {
+    flex: 1,
+    minWidth: 210,
+    backgroundColor: "#16a34a",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  receiveText: {
+    color: "white",
+    fontWeight: "800",
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });

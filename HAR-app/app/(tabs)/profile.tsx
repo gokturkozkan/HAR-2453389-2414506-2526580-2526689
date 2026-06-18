@@ -10,7 +10,7 @@ import {
 } from "react-native"
 import { useState, useContext } from "react";
 import { UserContext } from "../contexts/UserContext";
-import { userApi } from "../apis/userApi";
+import { userApi } from "@/apis/userApi";
 
 export default function Profile() {
   const [newUsername, setNewUsername] = useState("")

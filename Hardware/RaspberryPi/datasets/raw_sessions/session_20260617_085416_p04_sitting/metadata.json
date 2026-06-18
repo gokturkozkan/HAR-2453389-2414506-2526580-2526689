@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260617_085416_p04_sitting",
+  "participant_id": "p04",
+  "activity": "sitting",
+  "started_at": "2026-06-17T08:54:16.552616+03:00",
+  "duration_seconds": 180.0,
+  "warmup_seconds": 10.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Sit on a chair before warmup ends. Keep feet on the floor and stay seated. Do not include sitting down or standing up transitions in the recording.",
+  "status": "completed",
+  "finished_at": "2026-06-17T08:57:27.326274+03:00",
+  "sample_count": 1793,
+  "node_sample_counts": {
+    "1": 598,
+    "2": 596,
+    "3": 599
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260617_085416_p04_sitting/raw_samples.jsonl"
+}

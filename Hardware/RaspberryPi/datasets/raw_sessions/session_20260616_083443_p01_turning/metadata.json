@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260616_083443_p01_turning",
+  "participant_id": "p01",
+  "activity": "turning",
+  "started_at": "2026-06-16T08:34:43.030553+03:00",
+  "duration_seconds": 180.0,
+  "warmup_seconds": 5.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Turn in place repeatedly at a steady pace, such as left-right or full body rotations. Avoid walking forward or mixing in punching/crouching movements.",
+  "status": "completed",
+  "finished_at": "2026-06-16T08:37:48.130182+03:00",
+  "sample_count": 1800,
+  "node_sample_counts": {
+    "1": 600,
+    "2": 600,
+    "3": 600
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260616_083443_p01_turning/raw_samples.jsonl"
+}

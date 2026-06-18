@@ -1,0 +1,9 @@
+$ .venv/bin/python -m pytest tests/test_activity_label_flow.py tests/test_backend_unit.py tests/test_transport_unit.py -q
+.................                                                        [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/flatbuffers/compat.py:19
+  /home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/.venv/lib/python3.11/site-packages/flatbuffers/compat.py:19: DeprecationWarning: the imp module is deprecated in favour of importlib and slated for removal in Python 3.12; see the module's documentation for alternative uses
+    import imp
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+17 passed, 1 warning in 25.39s
