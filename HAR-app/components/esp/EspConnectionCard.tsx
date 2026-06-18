@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EspCommandAction } from "@/app/types/espTypes";
@@ -53,9 +52,10 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
   const connected = isConnected === true;
   const unknown = isConnected === null || isConnected === undefined;
   const loading = loadingAction !== null;
+  const tapReconnectEnabled = !connected && !unknown && !loading && Boolean(onAction);
 
   const icon = loading ? (
-    <ActivityIndicator size="small" color="#2563eb" />
+    <Ionicons name="refresh-circle" size={38} color="#2563eb" />
   ) : connected ? (
     <Ionicons name="checkmark-circle" size={38} color="#22c55e" />
   ) : unknown ? (
@@ -65,7 +65,7 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
   );
 
   const statusText = loading
-    ? "Checking..."
+    ? "Working..."
     : connected
       ? "Connected"
       : unknown
@@ -79,39 +79,33 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
     label: string;
     icon: IconName;
     variant: "primary" | "secondary";
-  }[] = connected
-    ? [
-        {
-          action: "disconnect",
-          label: ACTION_LABELS.disconnect,
-          icon: "close-circle-outline",
-          variant: "secondary",
-        },
-        {
-          action: "probe",
-          label: ACTION_LABELS.probe,
-          icon: "pulse-outline",
-          variant: "secondary",
-        },
-        {
-          action: "reconnect",
-          label: ACTION_LABELS.reconnect,
-          icon: "refresh-outline",
-          variant: "primary",
-        },
-      ]
-    : [
-        {
-          action: "reconnect",
-          label: ACTION_LABELS.reconnect,
-          icon: "refresh-outline",
-          variant: "primary",
-        },
-      ];
+  }[] = [
+    {
+      action: "disconnect",
+      label: ACTION_LABELS.disconnect,
+      icon: "close-circle-outline",
+      variant: "secondary",
+    },
+    {
+      action: "probe",
+      label: ACTION_LABELS.probe,
+      icon: "pulse-outline",
+      variant: "secondary",
+    },
+    {
+      action: "reconnect",
+      label: ACTION_LABELS.reconnect,
+      icon: "refresh-outline",
+      variant: "primary",
+    },
+  ];
   const mutedDetail = detail || port || NODE_NAMES[count] || "Sensor";
 
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={tapReconnectEnabled ? 0.86 : 1}
+      disabled={!tapReconnectEnabled}
+      onPress={() => onAction?.(count, "reconnect")}
       style={[
         styles.card,
         connected && styles.cardConnected,
@@ -137,40 +131,49 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
         </Text>
       </View>
 
-      <View style={styles.actionRow}>
-        {actions.map((item) => {
-          const primary = item.variant === "primary";
+      {connected ? (
+        <View style={styles.actionRow}>
+          {actions.map((item) => {
+            const primary = item.variant === "primary";
 
-          return (
-            <TouchableOpacity
-              key={item.action}
-              activeOpacity={0.85}
-              disabled={loading || !onAction}
-              onPress={() => onAction?.(count, item.action)}
-              style={[
-                styles.actionButton,
-                primary ? styles.actionPrimary : styles.actionSecondary,
-                (loading || !onAction) && styles.actionDisabled,
-              ]}
-            >
-              <Ionicons
-                name={item.icon}
-                size={16}
-                color={primary ? "#ffffff" : "#2563eb"}
-              />
-              <Text
+            return (
+              <TouchableOpacity
+                key={item.action}
+                activeOpacity={0.85}
+                disabled={loading || !onAction}
+                onPress={() => onAction?.(count, item.action)}
                 style={[
-                  styles.actionText,
-                  primary ? styles.actionTextPrimary : styles.actionTextSecondary,
+                  styles.actionButton,
+                  primary ? styles.actionPrimary : styles.actionSecondary,
+                  (loading || !onAction) && styles.actionDisabled,
                 ]}
               >
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
+                <Ionicons
+                  name={item.icon}
+                  size={16}
+                  color={primary ? "#ffffff" : "#2563eb"}
+                />
+                <Text
+                  style={[
+                    styles.actionText,
+                    primary ? styles.actionTextPrimary : styles.actionTextSecondary,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={[styles.tapRow, unknown && styles.tapRowDisabled]}>
+          <Ionicons name="refresh-outline" size={16} color="#2563eb" />
+          <Text style={styles.tapText}>
+            {loading ? LOADING_LABELS[loadingAction] : "Tap node to reconnect"}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
   );
 };
 
@@ -273,5 +276,25 @@ const styles = StyleSheet.create({
   },
   actionTextSecondary: {
     color: "#2563eb",
+  },
+  tapRow: {
+    marginTop: 14,
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 999,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  tapRowDisabled: {
+    opacity: 0.55,
+  },
+  tapText: {
+    color: "#2563eb",
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

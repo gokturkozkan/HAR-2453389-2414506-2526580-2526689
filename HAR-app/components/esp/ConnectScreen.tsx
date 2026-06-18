@@ -40,7 +40,7 @@ const initialNodes = (): EspStatus[] =>
   NODE_IDS.map((id) => ({
     id,
     isConnected: null,
-    status: "Checking",
+    status: "Unknown",
   }));
 
 const isNodeConnected = (node: EspStatus) => {
@@ -63,7 +63,6 @@ export default function ConnectScreen() {
   const isDesktop = width >= 768;
 
   const [esps, setEsps] = useState<EspStatus[]>(initialNodes);
-  const [refreshing, setRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
     id: number;
     action: EspCommandAction;
@@ -77,8 +76,6 @@ export default function ConnectScreen() {
   const fetchEsps = useCallback(
     async (initial = false, force = false) => {
       if (!initial && pendingActionRef.current && !force) return;
-
-      setRefreshing(true);
 
       try {
         setErrorMessage(null);
@@ -139,8 +136,6 @@ export default function ConnectScreen() {
             detail: e?.message || "Could not load node status",
           }))
         );
-      } finally {
-        setRefreshing(false);
       }
     },
     [api, setConnection]
@@ -153,6 +148,20 @@ export default function ConnectScreen() {
       pendingActionRef.current = true;
       setPendingAction({ id, action });
       setErrorMessage(null);
+      setEsps((current) =>
+        current.map((esp) =>
+          esp.id === id
+            ? {
+                ...esp,
+                status: action === "reconnect" ? "Reconnecting" : esp.status,
+                detail:
+                  action === "reconnect"
+                    ? "Closing, rebinding, opening, then requesting a sample."
+                    : esp.detail,
+              }
+            : esp
+        )
+      );
 
       try {
         const updatedNode = await withTimeout(
@@ -213,12 +222,6 @@ export default function ConnectScreen() {
           </Text>
         </View>
 
-        {refreshing && (
-          <View style={styles.refreshRow}>
-            <Text style={styles.refreshText}>Checking status...</Text>
-          </View>
-        )}
-
         {errorMessage && (
           <Text style={styles.errorText}>{errorMessage}</Text>
         )}
@@ -276,19 +279,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#64748b",
     lineHeight: 22,
-  },
-  refreshRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-    backgroundColor: "#f8fafc",
-    padding: 10,
-    borderRadius: 999,
-  },
-  refreshText: {
-    color: "#475569",
-    fontWeight: "600",
   },
   errorText: {
     marginTop: 12,
