@@ -102,9 +102,9 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
       ]
     : [
         {
-          action: "connect",
-          label: ACTION_LABELS.connect,
-          icon: "radio-outline",
+          action: "reconnect",
+          label: ACTION_LABELS.reconnect,
+          icon: "refresh-outline",
           variant: "primary",
         },
       ];

@@ -9,7 +9,6 @@ import React, {
 import {
   View,
   StyleSheet,
-  ActivityIndicator,
   Text,
   useWindowDimensions,
   Pressable,
@@ -29,6 +28,27 @@ const ACTION_TIMEOUT_MS: Record<EspCommandAction, number> = {
   probe: 8000,
 };
 
+const RECEIVING_STATUSES = new Set([
+  "open",
+  "ready",
+  "receiving",
+  "open - no data",
+  "open - unreadable",
+]);
+
+const initialNodes = (): EspStatus[] =>
+  NODE_IDS.map((id) => ({
+    id,
+    isConnected: null,
+    status: "Checking",
+  }));
+
+const isNodeConnected = (node: EspStatus) => {
+  const status = node.status?.trim().toLowerCase();
+
+  return node.isConnected === true || Boolean(status && RECEIVING_STATUSES.has(status));
+};
+
 const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
   return Promise.race([
     promise,
@@ -42,8 +62,7 @@ export default function ConnectScreen() {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
 
-  const [esps, setEsps] = useState<EspStatus[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [esps, setEsps] = useState<EspStatus[]>(initialNodes);
   const [refreshing, setRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
     id: number;
@@ -59,8 +78,7 @@ export default function ConnectScreen() {
     async (initial = false, force = false) => {
       if (!initial && pendingActionRef.current && !force) return;
 
-      if (initial) setLoading(true);
-      else setRefreshing(true);
+      setRefreshing(true);
 
       try {
         setErrorMessage(null);
@@ -84,13 +102,20 @@ export default function ConnectScreen() {
 
         const nextEsps: EspStatus[] = safeNodes.map((d: EspId, index: number) => {
           const result = statusResults[index];
+          const statusNode: EspStatus =
+            result.status === "fulfilled"
+              ? result.value
+              : {
+                  id: d.id,
+                  isConnected: false,
+                  status: "Disconnected",
+                  detail: "Status request failed",
+                };
+          const normalizedNode = { ...statusNode, id: d.id };
 
           return {
-            id: d.id,
-            isConnected:
-              result.status === "fulfilled"
-                ? result.value.isConnected
-                : false,
+            ...normalizedNode,
+            isConnected: isNodeConnected(normalizedNode),
           };
         });
 
@@ -98,7 +123,7 @@ export default function ConnectScreen() {
 
         const allConnected =
           nextEsps.length === 3 &&
-          nextEsps.every((esp) => esp.isConnected === true);
+          nextEsps.every(isNodeConnected);
 
         setConnection(allConnected);
       } catch (e: any) {
@@ -106,14 +131,15 @@ export default function ConnectScreen() {
         setErrorMessage(e?.message || "Could not load nodes");
         setConnection(false);
 
-        setEsps(
-          NODE_IDS.map((id) => ({
-            id,
+        setEsps((current) =>
+          current.map((esp) => ({
+            ...esp,
             isConnected: false,
+            status: "Disconnected",
+            detail: e?.message || "Could not load node status",
           }))
         );
       } finally {
-        setLoading(false);
         setRefreshing(false);
       }
     },
@@ -140,6 +166,7 @@ export default function ConnectScreen() {
               ? {
                   ...esp,
                   ...updatedNode,
+                  isConnected: isNodeConnected(updatedNode),
                 }
               : esp
           )
@@ -175,23 +202,6 @@ export default function ConnectScreen() {
     return () => clearInterval(interval);
   }, [fetchEsps]);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>Loading nodes...</Text>
-
-        {errorMessage && (
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        )}
-
-        <Pressable style={styles.retryButton} onPress={() => fetchEsps(true)}>
-          <Text style={styles.retryText}>Retry</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.screen}>
       <View style={[styles.card, isDesktop && styles.cardDesktop]}>
@@ -205,7 +215,6 @@ export default function ConnectScreen() {
 
         {refreshing && (
           <View style={styles.refreshRow}>
-            <ActivityIndicator size="small" color="#2563eb" />
             <Text style={styles.refreshText}>Checking status...</Text>
           </View>
         )}
@@ -235,19 +244,6 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: "center",
     alignItems: "center",
-  },
-  loadingScreen: {
-    flex: 1,
-    backgroundColor: "#eef2ff",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#475569",
-    fontWeight: "600",
   },
   card: {
     width: "100%",
