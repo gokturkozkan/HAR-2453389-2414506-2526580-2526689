@@ -1,6 +1,7 @@
 
 import { createContext, useState, useEffect, ReactNode, useMemo, useCallback } from 'react';
 import { espStatusApi } from '@/apis/espStatusApi';
+import { EspStatus } from '../types/espTypes';
 
 interface ConnectionContextType {
   connection: boolean; 
@@ -12,9 +13,35 @@ export const ConnectionContext = createContext<ConnectionContextType>({
   setConnection: () => {},
 });
 
+const STATUS_TIMEOUT_MS = 10000;
+const CONNECTION_REFRESH_MS = 10000;
+
+const CONNECTED_STATUSES = new Set([
+  'open',
+  'ready',
+  'receiving',
+  'open - no data',
+  'open - unreadable',
+]);
+
+const isNodeConnected = (node: EspStatus) => {
+  const status = node.status?.trim().toLowerCase();
+
+  return node.isConnected === true || Boolean(status && CONNECTED_STATUSES.has(status));
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out')), ms)
+    ),
+  ]);
+};
+
 export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [connection, setConnectionState] = useState<boolean>(false);
-  const { getEsp, getEspStatus } = useMemo(() => espStatusApi(), []);
+  const { getAllEspStatus } = useMemo(() => espStatusApi(), []);
   
   // Explicitly set connection to false on mount
   useEffect(() => {
@@ -22,55 +49,39 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setConnection = useCallback((value: boolean) => {
-    console.log("🔴 setConnection CALLED with:", value);
     setConnectionState(value);
   }, []);
-
-  useEffect(() => {
-    console.log("🟢 CONNECTION STATE CHANGED TO:", connection);
-  }, [connection]);
 
   useEffect(() => {
     let cancelled = false;
 
     const refreshConnection = async () => {
       try {
-        const esps = await getEsp();
+        const esps = await withTimeout(getAllEspStatus(), STATUS_TIMEOUT_MS);
 
         if (!esps || esps.length === 0) {
-          if (!cancelled) setConnectionState(false);
           return;
         }
 
-        const statusResults = await Promise.allSettled(
-          esps.map((esp) => getEspStatus(esp.id))
-        );
+        const trackedNodes = esps.filter((esp) => [1, 2, 3].includes(esp.id));
+        const allConnected =
+          trackedNodes.length === 3 && trackedNodes.every(isNodeConnected);
 
-        // Keep current state when refresh has transient request failures.
-        const hasFailures = statusResults.some((result) => result.status === 'rejected');
-        if (hasFailures) {
-          return;
-        }
-
-        const allConnected = statusResults.every(
-          (result) => result.status === 'fulfilled' && result.value.isConnected === true
-        );
         if (!cancelled) setConnectionState(allConnected);
       } catch (error) {
-        console.error("Connection refresh failed:", error);
+        console.warn("Connection refresh delayed; keeping last known state.", error);
       }
     };
 
     refreshConnection();
-    const interval = setInterval(refreshConnection, 30000);
+    const interval = setInterval(refreshConnection, CONNECTION_REFRESH_MS);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [getEsp, getEspStatus]);
+  }, [getAllEspStatus]);
 
-  // CRITICAL: Memoize the value object so React detects changes
   const value = useMemo(() => ({ connection, setConnection }), [connection, setConnection]);
 
   return (
@@ -79,4 +90,3 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     </ConnectionContext.Provider>
   )
 }
-

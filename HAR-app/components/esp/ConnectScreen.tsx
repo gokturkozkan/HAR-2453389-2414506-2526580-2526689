@@ -14,13 +14,13 @@ import {
   Pressable,
 } from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
-import { EspCommandAction, EspId, EspStatus } from "@/app/types/espTypes";
+import { EspCommandAction, EspStatus } from "@/app/types/espTypes";
 import { espStatusApi } from "@/apis/espStatusApi";
 import { ConnectionContext } from "../../app/contexts/ConnectionContext";
 
 const NODE_IDS = [1, 2, 3];
-const STATUS_TIMEOUT_MS = 4000;
-const NODE_STATUS_TIMEOUT_MS = 3000;
+const STATUS_TIMEOUT_MS = 10000;
+const STATUS_POLL_MS = 3000;
 const ACTION_TIMEOUT_MS: Record<EspCommandAction, number> = {
   connect: 30000,
   disconnect: 10000,
@@ -51,6 +51,30 @@ const isNodeConnected = (node: EspStatus) => {
   return node.isConnected === true || Boolean(status && RECEIVING_STATUSES.has(status));
 };
 
+const normalizeNodes = (
+  nodes: EspStatus[],
+  current: EspStatus[],
+): EspStatus[] => {
+  return NODE_IDS.map((id) => {
+    const previous = current.find((node) => node.id === id);
+    const next = nodes.find((node) => node.id === id);
+    const normalizedNode: EspStatus = {
+      ...(previous || { id, isConnected: null, status: "Unknown" }),
+      ...(next || {}),
+      id,
+    };
+
+    if (next && next.isConnected === false && !next.status) {
+      normalizedNode.status = "Disconnected";
+    }
+
+    return {
+      ...normalizedNode,
+      isConnected: isNodeConnected(normalizedNode),
+    };
+  });
+};
+
 const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
   return Promise.race([
     promise,
@@ -73,9 +97,17 @@ export default function ConnectScreen() {
   const [receivingRunning, setReceivingRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pendingActionRef = useRef(false);
+  const espsRef = useRef<EspStatus[]>(initialNodes());
 
   const api = useMemo(() => espStatusApi(), []);
   const { setConnection } = useContext(ConnectionContext);
+  const updateEsps = useCallback((updater: (current: EspStatus[]) => EspStatus[]) => {
+    const next = updater(espsRef.current);
+    espsRef.current = next;
+    setEsps(next);
+
+    return next;
+  }, []);
 
   const fetchEsps = useCallback(
     async (initial = false, force = false) => {
@@ -84,43 +116,8 @@ export default function ConnectScreen() {
       try {
         setErrorMessage(null);
 
-        const data = await withTimeout(api.getEsp(), STATUS_TIMEOUT_MS);
-
-        const threeNodes = data
-          .filter((d: EspId) => NODE_IDS.includes(d.id))
-          .sort((a: EspId, b: EspId) => a.id - b.id);
-
-        const safeNodes =
-          threeNodes.length > 0
-            ? threeNodes
-            : NODE_IDS.map((id) => ({ id }));
-
-        const statusResults = await Promise.allSettled(
-          safeNodes.map((d: EspId) =>
-            withTimeout(api.getEspStatus(d.id), NODE_STATUS_TIMEOUT_MS)
-          )
-        );
-
-        const nextEsps: EspStatus[] = safeNodes.map((d: EspId, index: number) => {
-          const result = statusResults[index];
-          const statusNode: EspStatus =
-            result.status === "fulfilled"
-              ? result.value
-              : {
-                  id: d.id,
-                  isConnected: false,
-                  status: "Disconnected",
-                  detail: "Status request failed",
-                };
-          const normalizedNode = { ...statusNode, id: d.id };
-
-          return {
-            ...normalizedNode,
-            isConnected: isNodeConnected(normalizedNode),
-          };
-        });
-
-        setEsps(nextEsps);
+        const data = await withTimeout(api.getAllEspStatus(), STATUS_TIMEOUT_MS);
+        const nextEsps = updateEsps((current) => normalizeNodes(data, current));
 
         const allConnected =
           nextEsps.length === 3 &&
@@ -129,20 +126,17 @@ export default function ConnectScreen() {
         setConnection(allConnected);
       } catch (e: any) {
         console.error("ESP fetch error:", e);
-        setErrorMessage(e?.message || "Could not load nodes");
-        setConnection(false);
 
-        setEsps((current) =>
-          current.map((esp) => ({
-            ...esp,
-            isConnected: false,
-            status: "Disconnected",
-            detail: e?.message || "Could not load node status",
-          }))
-        );
+        if (initial || force) {
+          setErrorMessage(
+            `Status refresh delayed; keeping last known state. ${
+              e?.message || "Could not load nodes"
+            }`
+          );
+        }
       }
     },
-    [api, setConnection]
+    [api, setConnection, updateEsps]
   );
 
   const handleNodeAction = useCallback(
@@ -152,7 +146,7 @@ export default function ConnectScreen() {
       pendingActionRef.current = true;
       setPendingAction({ id, action });
       setErrorMessage(null);
-      setEsps((current) =>
+      updateEsps((current) =>
         current.map((esp) =>
           esp.id === id
             ? {
@@ -173,7 +167,7 @@ export default function ConnectScreen() {
           ACTION_TIMEOUT_MS[action]
         );
 
-        setEsps((current) =>
+        updateEsps((current) =>
           current.map((esp) =>
             esp.id === id
               ? {
@@ -193,7 +187,7 @@ export default function ConnectScreen() {
         try {
           await fetchEsps(false, true);
         } catch {
-          setConnection(false);
+          // Keep the last known state when a refresh fails after an action.
         } finally {
           setErrorMessage(message);
         }
@@ -202,7 +196,7 @@ export default function ConnectScreen() {
         setPendingAction(null);
       }
     },
-    [api, fetchEsps, setConnection]
+    [api, fetchEsps, updateEsps]
   );
 
   const handleRebindRfcomm = useCallback(async () => {
@@ -212,7 +206,7 @@ export default function ConnectScreen() {
     setRebindRunning(true);
     setErrorMessage(null);
     setConnection(false);
-    setEsps((current) =>
+    updateEsps((current) =>
       current.map((esp) => ({
         ...esp,
         isConnected: false,
@@ -232,7 +226,7 @@ export default function ConnectScreen() {
       pendingActionRef.current = false;
       setRebindRunning(false);
     }
-  }, [api, fetchEsps, receivingRunning, rebindRunning, setConnection]);
+  }, [api, fetchEsps, receivingRunning, rebindRunning, setConnection, updateEsps]);
 
   const handleStartReceiving = useCallback(async () => {
     if (pendingActionRef.current || receivingRunning || rebindRunning) return;
@@ -240,7 +234,7 @@ export default function ConnectScreen() {
     pendingActionRef.current = true;
     setReceivingRunning(true);
     setErrorMessage(null);
-    setEsps((current) =>
+    updateEsps((current) =>
       current.map((esp) =>
         isNodeConnected(esp)
           ? {
@@ -263,14 +257,14 @@ export default function ConnectScreen() {
       pendingActionRef.current = false;
       setReceivingRunning(false);
     }
-  }, [api, fetchEsps, receivingRunning, rebindRunning]);
+  }, [api, fetchEsps, receivingRunning, rebindRunning, updateEsps]);
 
   useEffect(() => {
     fetchEsps(true);
 
     const interval = setInterval(() => {
       fetchEsps(false);
-    }, 1000);
+    }, STATUS_POLL_MS);
 
     return () => clearInterval(interval);
   }, [fetchEsps]);

@@ -39,12 +39,13 @@ export default function HomeScreen() {
 
   const { connection } = useContext(ConnectionContext);
   const { getLabel, sendLabel } = useMemo(() => labelApi(), []);
+  const showActivityMonitor = connection || Boolean(label);
   const labelImageSource: ImageSourcePropType | undefined = label?.image
     ? { uri: `data:${label.imageMime || "image/png"};base64,${label.image}` }
     : getActivityLabelImage(label?.label);
 
   const fetchLabel = useCallback(async () => {
-    if (!connection) return;
+    if (!connection && !label) return;
 
     try {
       const data = await getLabel();
@@ -56,21 +57,33 @@ export default function HomeScreen() {
         return data;
       });
     } catch (e: any) {
-      setMessage(["error", e.message]);
+      const message = e?.message || "Error fetching label";
+
+      if (message.includes("No activity label available yet")) {
+        if (!label) setMessage(null);
+        return;
+      }
+
+      if (label) {
+        console.warn("Label refresh delayed; keeping last activity.", e);
+        return;
+      }
+
+      setMessage(["error", message]);
     }
-  }, [connection, getLabel]);
+  }, [connection, getLabel, label]);
 
   useEffect(() => {
-    if (!connection) return;
+    if (!connection && !label) return;
 
     fetchLabel();
 
     const interval = setInterval(() => {
       fetchLabel();
-    }, 1000);
+    }, 1500);
 
     return () => clearInterval(interval);
-  }, [connection, fetchLabel]);
+  }, [connection, fetchLabel, label]);
 
   const handleRelabel = useCallback(
     async (nextLabel: string) => {
@@ -115,7 +128,7 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {connection ? (
+          {showActivityMonitor ? (
             <>
               <View style={styles.activityBox}>
                 {loading && <ActivityIndicator size="large" color="#2563eb" />}

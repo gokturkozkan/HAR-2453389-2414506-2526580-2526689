@@ -33,6 +33,23 @@ export const espStatusApi = () => {
       .sort((a: EspId, b: EspId) => a.id - b.id);
   };
 
+  const getAllEspStatus = async (): Promise<EspStatus[]> => {
+    const response = await fetch(`${API_URL}/esp-status`, {
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.message || "Error fetching ESP statuses");
+    }
+
+    const data = await response.json();
+
+    return data
+      .filter((esp: EspStatus) => [1, 2, 3].includes(esp.id))
+      .sort((a: EspStatus, b: EspStatus) => a.id - b.id);
+  };
+
   const runEspCommand = async (
     id: number,
     action: EspCommandAction
@@ -82,6 +99,7 @@ export const espStatusApi = () => {
   return {
     getEspStatus,
     getEsp,
+    getAllEspStatus,
     runEspCommand,
     rebindRfcomm,
     startReceiving,
