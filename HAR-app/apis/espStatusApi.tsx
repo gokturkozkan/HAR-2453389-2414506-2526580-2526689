@@ -65,5 +65,25 @@ export const espStatusApi = () => {
     return data;
   };
 
-  return { getEspStatus, getEsp, runEspCommand, rebindRfcomm };
+  const startReceiving = async () => {
+    const response = await fetch(`${API_URL}/esp/receiving/start`, {
+      method: "POST",
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.message || "Error starting receiving");
+    }
+
+    return data;
+  };
+
+  return {
+    getEspStatus,
+    getEsp,
+    runEspCommand,
+    rebindRfcomm,
+    startReceiving,
+  };
 };

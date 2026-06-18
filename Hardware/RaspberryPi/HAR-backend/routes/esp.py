@@ -147,6 +147,11 @@ def rebind_rfcomm_devices():
     return controller_response(tdma_controller.rebind_rfcomm)
 
 
+@esp_bp.route('/esp/receiving/start', methods=['POST'])
+def start_receiving_data():
+    return controller_response(tdma_controller.start_receiving)
+
+
 @esp_bp.route('/esp/<int:device_id>/connect', methods=['POST'])
 def connect_esp_device(device_id):
     return command_response(tdma_controller.connect_node, device_id)

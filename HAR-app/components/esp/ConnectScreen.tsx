@@ -28,6 +28,7 @@ const ACTION_TIMEOUT_MS: Record<EspCommandAction, number> = {
   probe: 8000,
 };
 const RFCOMM_REBIND_TIMEOUT_MS = 35000;
+const START_RECEIVING_TIMEOUT_MS = 8000;
 
 const RECEIVING_STATUSES = new Set([
   "open",
@@ -69,6 +70,7 @@ export default function ConnectScreen() {
     action: EspCommandAction;
   } | null>(null);
   const [rebindRunning, setRebindRunning] = useState(false);
+  const [receivingRunning, setReceivingRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pendingActionRef = useRef(false);
 
@@ -204,7 +206,7 @@ export default function ConnectScreen() {
   );
 
   const handleRebindRfcomm = useCallback(async () => {
-    if (pendingActionRef.current || rebindRunning) return;
+    if (pendingActionRef.current || rebindRunning || receivingRunning) return;
 
     pendingActionRef.current = true;
     setRebindRunning(true);
@@ -230,7 +232,38 @@ export default function ConnectScreen() {
       pendingActionRef.current = false;
       setRebindRunning(false);
     }
-  }, [api, fetchEsps, rebindRunning, setConnection]);
+  }, [api, fetchEsps, receivingRunning, rebindRunning, setConnection]);
+
+  const handleStartReceiving = useCallback(async () => {
+    if (pendingActionRef.current || receivingRunning || rebindRunning) return;
+
+    pendingActionRef.current = true;
+    setReceivingRunning(true);
+    setErrorMessage(null);
+    setEsps((current) =>
+      current.map((esp) =>
+        isNodeConnected(esp)
+          ? {
+              ...esp,
+              status: "Receiving",
+              detail: "Starting receive loop.",
+            }
+          : esp
+      )
+    );
+
+    try {
+      await withTimeout(api.startReceiving(), START_RECEIVING_TIMEOUT_MS);
+      await fetchEsps(false, true);
+    } catch (e: any) {
+      console.error("start receiving error:", e);
+      setErrorMessage(e?.message || "Could not start receiving data");
+      await fetchEsps(false, true).catch(() => undefined);
+    } finally {
+      pendingActionRef.current = false;
+      setReceivingRunning(false);
+    }
+  }, [api, fetchEsps, receivingRunning, rebindRunning]);
 
   useEffect(() => {
     fetchEsps(true);
@@ -266,11 +299,26 @@ export default function ConnectScreen() {
         <View style={styles.actionRow}>
           <Pressable
             style={[
+              styles.receiveButton,
+              (receivingRunning || rebindRunning || Boolean(pendingAction)) &&
+                styles.disabledButton,
+            ]}
+            onPress={handleStartReceiving}
+            disabled={receivingRunning || rebindRunning || Boolean(pendingAction)}
+          >
+            <Text style={styles.receiveText}>
+              {receivingRunning ? "Starting receiving..." : "Start Receiving Data"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
               styles.rebindButton,
-              rebindRunning && styles.disabledButton,
+              (rebindRunning || receivingRunning || Boolean(pendingAction)) &&
+                styles.disabledButton,
             ]}
             onPress={handleRebindRfcomm}
-            disabled={rebindRunning}
+            disabled={rebindRunning || receivingRunning || Boolean(pendingAction)}
           >
             <Text style={styles.rebindText}>
               {rebindRunning ? "Rebinding rfcomm..." : "Rebind rfcomm"}
@@ -365,6 +413,19 @@ const styles = StyleSheet.create({
   },
   rebindText: {
     color: "#2563eb",
+    fontWeight: "800",
+  },
+  receiveButton: {
+    flex: 1,
+    minWidth: 210,
+    backgroundColor: "#16a34a",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  receiveText: {
+    color: "white",
     fontWeight: "800",
   },
   disabledButton: {

@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from database import db_get, db_run
 
@@ -54,6 +54,7 @@ NODE_MACS = {
 NODE_PORTS = getattr(hub, "NODE_PORTS", DEFAULT_NODE_PORTS)
 NODE_NAMES = getattr(hub, "NODE_NAMES", DEFAULT_NODE_NAMES)
 BAUDRATE = getattr(hub, "BAUDRATE", 115200)
+FRAME_PERIOD = getattr(hub, "FRAME_PERIOD", 0.1)
 
 
 def read_int_env(name: str, default: int) -> int:
@@ -124,6 +125,7 @@ class NodeRuntime:
         return self.serial_open() and self.status in (
             "Open",
             "Ready",
+            "Receiving",
             "Open - no data",
             "Open - unreadable",
         )
@@ -211,6 +213,8 @@ def write_sensor_log(status: str, **metadata: Any) -> None:
 class TdmaBackendController:
     def __init__(self) -> None:
         self.lock = threading.RLock()
+        self.receiving = False
+        self.receiver_thread: Optional[threading.Thread] = None
         self.nodes = {
             node_id: NodeRuntime(
                 node_id=node_id,
@@ -398,7 +402,134 @@ class TdmaBackendController:
         self._set_database_status(node_id, True)
         return node.to_response()
 
+    def start_receiving(self) -> Dict[str, Any]:
+        with self.lock:
+            if self.receiving:
+                return {
+                    "message": "Receiving is already running",
+                    "receiving": True,
+                    "nodes": self._nodes_response_locked(),
+                }
+
+            self.receiving = True
+            thread = threading.Thread(target=self.receive_loop, daemon=True)
+            self.receiver_thread = thread
+
+        thread.start()
+        write_sensor_log("backend_receiving_start")
+
+        with self.lock:
+            return {
+                "message": "Receiving started",
+                "receiving": True,
+                "nodes": self._nodes_response_locked(),
+            }
+
+    def stop_receiving(self) -> Dict[str, Any]:
+        with self.lock:
+            if not self.receiving:
+                return {
+                    "message": "Receiving is already stopped",
+                    "receiving": False,
+                    "nodes": self._nodes_response_locked(),
+                }
+
+            self.receiving = False
+            thread = self.receiver_thread
+
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+
+        with self.lock:
+            self.receiver_thread = None
+            nodes = self._nodes_response_locked()
+
+        write_sensor_log("backend_receiving_stop")
+
+        return {
+            "message": "Receiving stopped",
+            "receiving": False,
+            "nodes": nodes,
+        }
+
+    def receive_loop(self) -> None:
+        while True:
+            with self.lock:
+                is_receiving = self.receiving
+
+            if not is_receiving:
+                break
+
+            frame_start = time.perf_counter()
+
+            for node_id in (1, 2, 3):
+                with self.lock:
+                    if not self.receiving:
+                        break
+
+                    node = self.nodes[node_id]
+                    ser_open = node.serial_open()
+
+                if not ser_open:
+                    continue
+
+                try:
+                    line = self.request_line(node_id)
+                except Exception as error:
+                    with self.lock:
+                        node.errors += 1
+                        self._set_node_status(node, "Read failed", str(error))
+
+                    self._set_database_status(node_id, False)
+                    write_sensor_log(
+                        "backend_read_error",
+                        node_id=node_id,
+                        port=node.port,
+                        error=repr(error),
+                    )
+                    continue
+
+                if not line:
+                    write_sensor_log(
+                        "backend_read_empty",
+                        node_id=node_id,
+                        port=node.port,
+                    )
+                    continue
+
+                parsed = parse_frame(line)
+                write_sensor_log(
+                    "backend_raw_sample",
+                    node_id=node_id,
+                    port=node.port,
+                    line=line,
+                )
+
+                if not parsed:
+                    with self.lock:
+                        node.latest_line = line
+                        node.latest_sample = {}
+                        self._set_node_status(node, "Open - unreadable", line)
+                    continue
+
+                if hub is not None and hasattr(hub, "calibrate_node_sample"):
+                    parsed = hub.calibrate_node_sample(parsed)
+
+                with self.lock:
+                    should_update_database = node.status != "Receiving"
+                    node.latest_line = line
+                    node.latest_sample = parsed
+                    self._set_node_status(node, "Receiving", "Receiving samples.")
+
+                if should_update_database:
+                    self._set_database_status(node_id, True)
+
+            elapsed = time.perf_counter() - frame_start
+            time.sleep(max(0.02, FRAME_PERIOD - elapsed))
+
     def close_all(self) -> None:
+        self.stop_receiving()
+
         for node_id in list(self.nodes):
             try:
                 self.close_node_serial(node_id)
@@ -625,6 +756,12 @@ class TdmaBackendController:
         node.status = status
         node.detail = detail or ""
         node.updated_at = utc_now_iso()
+
+    def _nodes_response_locked(self) -> List[Dict[str, Any]]:
+        return [
+            self.nodes[node_id].to_response()
+            for node_id in sorted(self.nodes)
+        ]
 
     def _set_database_status(self, node_id: int, is_connected: bool) -> None:
         try:
