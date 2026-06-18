@@ -15,18 +15,8 @@ The Unity visualisation/game component is maintained as a separate dependency in
 - [Hardware Requirements](#hardware-requirements)
 - [Software Stack](#software-stack)
 - [Repository Structure](#repository-structure)
-- [Getting Started](#getting-started)
-  - [1. Clone the Repository](#1-clone-the-repository)
-  - [2. Configure the HAR Hub (Raspberry Pi 5)](#2-configure-the-har-hub-raspberry-pi-5)
-  - [3. Configure ESP32 Sensor Nodes](#3-configure-esp32-sensor-nodes)
-  - [4. Run the Activity Labeling Mobile App](#4-run-the-activity-labeling-mobile-app)
-  - [5. Run the Unity Visualizer](#5-run-the-unity-visualizer)
 - [Data & Models](#data--models)
-- [User Roles](#user-roles)
-- [Non-Functional Requirements](#non-functional-requirements)
-- [Project Management & Documentation](#project-management--documentation)
 - [Contributing](#contributing)
-- [License](#license)
 - [Acknowledgements](#acknowledgements)
 
 ---
@@ -143,12 +133,25 @@ The architecture follows a modular pipeline.
 
 ```text
 ├── Hardware/                # Raspberry Pi 5 code (data pipeline + ML inference) and ESP32 firmware (IMU configuration + Bluetooth streaming)
-│   ├── RaspberryPi/
-│   └── ESP32/
-├── Mobile/                  # Activity Labeling App (React Native / Android)
-│   └── assets/
-├── data/                    # Dataset and logs
+│   ├── ESP32/
+│   └── RaspberryPi/
+│   │   ├── HAR-backend/      # Contains app.py and backend/API code
+│   │   ├── datasets/         # HAR datasets
+│   │   └── model/            # Trained models, scalers, encoders, metrics
+├── HAR-app/                  # Mobile Activity Labeling App
+├── .gitignore
 └── README.md                # You are here :)
 ```
 
 Unity project files are not stored directly in this repository. The Unity visualisation/game dependency is maintained in [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game).
+
+---
+
+## Data & Models
+
+HAR datasets and trained model artifacts are kept under `Hardware/RaspberryPi/`:
+
+- `datasets/` contains raw sessions, processed dataset summaries, and train/validation/test split metadata.
+- `model/` contains trained HAR models, scalers, label encoders, metrics, and evaluation outputs.
+
+These files support local Raspberry Pi inference and future model retraining.
