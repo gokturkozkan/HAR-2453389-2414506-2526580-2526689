@@ -1,51 +1,79 @@
 {
-  "generated_at": "2026-06-15T09:59:03.671288+00:00",
+  "generated_at": "2026-06-18T00:45:53.332944+00:00",
   "model_profile": "own_har_200x27",
   "evaluated_split": "test:session",
-  "sample_count": 304,
-  "accuracy": 1.0,
+  "sample_count": 1108,
+  "accuracy": 0.8790613718411552,
   "classification_report": {
-    "lying": {
+    "crouching": {
       "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 76.0
+      "recall": 0.5671641791044776,
+      "f1-score": 0.7238095238095238,
+      "support": 134.0
     },
-    "sitting": {
+    "lying": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
       "support": 114.0
     },
-    "standing": {
+    "punching": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 76.0
+      "support": 152.0
+    },
+    "sitting": {
+      "precision": 1.0,
+      "recall": 0.43283582089552236,
+      "f1-score": 0.6041666666666666,
+      "support": 134.0
+    },
+    "standing": {
+      "precision": 0.6129032258064516,
+      "recall": 1.0,
+      "f1-score": 0.76,
+      "support": 152.0
+    },
+    "turning": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 194.0
     },
     "walking": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 38.0
+      "support": 114.0
     },
-    "accuracy": 1.0,
-    "macro avg": {
-      "precision": 1.0,
+    "x_pose": {
+      "precision": 0.75,
       "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 304.0
+      "f1-score": 0.8571428571428571,
+      "support": 114.0
+    },
+    "accuracy": 0.8790613718411552,
+    "macro avg": {
+      "precision": 0.9203629032258065,
+      "recall": 0.875,
+      "f1-score": 0.868139880952381,
+      "support": 1108.0
     },
     "weighted avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 304.0
+      "precision": 0.9211744497496215,
+      "recall": 0.8790613718411552,
+      "f1-score": 0.871103876568678,
+      "support": 1108.0
     }
   },
   "confusion_matrix": [
     [
       76,
+      0,
+      0,
+      0,
+      58,
       0,
       0,
       0
@@ -54,31 +82,87 @@
       0,
       114,
       0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     [
       0,
       0,
-      76,
+      152,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     [
       0,
+      0,
+      0,
+      58,
+      38,
       0,
       0,
       38
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      152,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      194,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      114,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      114
     ]
   ],
   "labels": [
+    "crouching",
     "lying",
+    "punching",
     "sitting",
     "standing",
-    "walking"
+    "turning",
+    "walking",
+    "x_pose"
   ],
   "files": {
-    "model": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/../model/own_har_200x27_model.keras",
-    "scaler": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/../model/own_har_200x27_scaler.pkl",
-    "label_encoder": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/HAR-backend/../model/own_har_200x27_label_encoder.pkl",
-    "windows": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/processed/windows_200x27.jsonl"
+    "model": "model/own_har_200x27_model.keras",
+    "scaler": "model/own_har_200x27_scaler.pkl",
+    "label_encoder": "model/own_har_200x27_label_encoder.pkl",
+    "windows": "datasets/processed/windows_200x27.jsonl"
   }
 }
