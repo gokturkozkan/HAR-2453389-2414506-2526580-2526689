@@ -406,6 +406,59 @@ class TdmaBackendController:
             except Exception:
                 pass
 
+    def rebind_rfcomm(self) -> Dict[str, Any]:
+        self.close_all()
+
+        for node in self.nodes.values():
+            self._set_node_status(
+                node,
+                "Rebinding",
+                f"{node.port} | {node.mac}",
+            )
+
+        script = os.path.join(RASPBERRY_PI_DIR, "rfcommstarter.sh")
+        write_sensor_log("backend_rfcomm_rebind_all", script=script)
+
+        try:
+            code, output = self._run_command(("bash", script), timeout=25)
+        except Exception as error:
+            for node in self.nodes.values():
+                self._set_node_status(node, "Rebind failed", str(error))
+
+            write_sensor_log(
+                "backend_rfcomm_rebind_all_error",
+                script=script,
+                error=repr(error),
+            )
+            raise TdmaControlError(
+                f"rfcomm rebind failed: {error}",
+                status_code=503,
+            )
+
+        status = "Rebound" if code == 0 else "Rebind failed"
+        detail = output.strip().splitlines()[-1] if output.strip() else f"exit code {code}"
+
+        for node in self.nodes.values():
+            self._set_node_status(node, status, f"{node.port} | {node.mac} | {detail}")
+            self._set_database_status(node.node_id, False)
+
+        write_sensor_log(
+            "backend_rfcomm_rebind_all_done",
+            script=script,
+            return_code=code,
+            output=output,
+        )
+
+        return {
+            "message": "rfcomm rebind completed",
+            "returnCode": code,
+            "output": output,
+            "nodes": [
+                self.nodes[node_id].to_response()
+                for node_id in sorted(self.nodes)
+            ],
+        }
+
     def close_node_serial(self, node_id: int) -> None:
         node = self._node_or_error(node_id)
 

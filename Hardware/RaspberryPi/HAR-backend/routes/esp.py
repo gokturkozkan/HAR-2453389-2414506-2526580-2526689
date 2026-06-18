@@ -37,6 +37,14 @@ def command_response(handler, device_id):
     except TdmaControlError as error:
         return jsonify(error.to_response()), error.status_code
 
+
+def controller_response(handler):
+    try:
+        result = handler()
+        return jsonify(result)
+    except TdmaControlError as error:
+        return jsonify(error.to_response()), error.status_code
+
 @esp_bp.route('/esp-status', methods=['GET'])
 def get_esp_status():
     try:
@@ -132,6 +140,11 @@ def init_esp_devices():
     except Exception as error:
         print(f'Error initializing ESP devices: {error}')
         return jsonify({'message': 'Error initializing ESP devices'}), 500
+
+
+@esp_bp.route('/esp/rebind-rfcomm', methods=['POST'])
+def rebind_rfcomm_devices():
+    return controller_response(tdma_controller.rebind_rfcomm)
 
 
 @esp_bp.route('/esp/<int:device_id>/connect', methods=['POST'])

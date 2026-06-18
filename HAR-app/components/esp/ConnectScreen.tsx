@@ -27,6 +27,7 @@ const ACTION_TIMEOUT_MS: Record<EspCommandAction, number> = {
   reconnect: 35000,
   probe: 8000,
 };
+const RFCOMM_REBIND_TIMEOUT_MS = 35000;
 
 const RECEIVING_STATUSES = new Set([
   "open",
@@ -67,6 +68,7 @@ export default function ConnectScreen() {
     id: number;
     action: EspCommandAction;
   } | null>(null);
+  const [rebindRunning, setRebindRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pendingActionRef = useRef(false);
 
@@ -201,6 +203,35 @@ export default function ConnectScreen() {
     [api, fetchEsps, setConnection]
   );
 
+  const handleRebindRfcomm = useCallback(async () => {
+    if (pendingActionRef.current || rebindRunning) return;
+
+    pendingActionRef.current = true;
+    setRebindRunning(true);
+    setErrorMessage(null);
+    setConnection(false);
+    setEsps((current) =>
+      current.map((esp) => ({
+        ...esp,
+        isConnected: false,
+        status: "Rebinding",
+        detail: "Closing serial ports and running rfcommstarter.sh.",
+      }))
+    );
+
+    try {
+      await withTimeout(api.rebindRfcomm(), RFCOMM_REBIND_TIMEOUT_MS);
+      await fetchEsps(false, true);
+    } catch (e: any) {
+      console.error("rfcomm rebind error:", e);
+      setErrorMessage(e?.message || "Could not rebind rfcomm");
+      await fetchEsps(false, true).catch(() => undefined);
+    } finally {
+      pendingActionRef.current = false;
+      setRebindRunning(false);
+    }
+  }, [api, fetchEsps, rebindRunning, setConnection]);
+
   useEffect(() => {
     fetchEsps(true);
 
@@ -232,9 +263,24 @@ export default function ConnectScreen() {
           pendingAction={pendingAction}
         />
 
-        <Pressable style={styles.retryButton} onPress={() => fetchEsps(false)}>
-          <Text style={styles.retryText}>Refresh</Text>
-        </Pressable>
+        <View style={styles.actionRow}>
+          <Pressable
+            style={[
+              styles.rebindButton,
+              rebindRunning && styles.disabledButton,
+            ]}
+            onPress={handleRebindRfcomm}
+            disabled={rebindRunning}
+          >
+            <Text style={styles.rebindText}>
+              {rebindRunning ? "Rebinding rfcomm..." : "Rebind rfcomm"}
+            </Text>
+          </Pressable>
+
+          <Pressable style={styles.retryButton} onPress={() => fetchEsps(false)}>
+            <Text style={styles.retryText}>Refresh</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -287,8 +333,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "600",
   },
-  retryButton: {
+  actionRow: {
     marginTop: 16,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  retryButton: {
+    flex: 1,
+    minWidth: 140,
     backgroundColor: "#2563eb",
     paddingVertical: 12,
     paddingHorizontal: 20,
@@ -298,5 +351,23 @@ const styles = StyleSheet.create({
   retryText: {
     color: "white",
     fontWeight: "800",
+  },
+  rebindButton: {
+    flex: 1,
+    minWidth: 180,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  rebindText: {
+    color: "#2563eb",
+    fontWeight: "800",
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });

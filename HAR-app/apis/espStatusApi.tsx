@@ -51,5 +51,19 @@ export const espStatusApi = () => {
     return data;
   };
 
-  return { getEspStatus, getEsp, runEspCommand };
+  const rebindRfcomm = async () => {
+    const response = await fetch(`${API_URL}/esp/rebind-rfcomm`, {
+      method: "POST",
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.message || "Error rebinding rfcomm");
+    }
+
+    return data;
+  };
+
+  return { getEspStatus, getEsp, runEspCommand, rebindRfcomm };
 };
