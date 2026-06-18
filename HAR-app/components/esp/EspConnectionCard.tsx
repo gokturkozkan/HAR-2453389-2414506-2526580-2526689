@@ -7,12 +7,16 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { EspCommandAction } from "@/app/types/espTypes";
 
 interface EspConnectionCardProps {
   isConnected?: boolean | null;
+  status?: string;
+  detail?: string;
+  port?: string;
   count: number;
-  onConnect?: (id: number) => void;
-  loading?: boolean;
+  onAction?: (id: number, action: EspCommandAction) => void;
+  loadingAction?: EspCommandAction | null;
 }
 
 const NODE_NAMES: Record<number, string> = {
@@ -21,14 +25,34 @@ const NODE_NAMES: Record<number, string> = {
   3: "Ankle",
 };
 
+const ACTION_LABELS: Record<EspCommandAction, string> = {
+  connect: "Connect",
+  disconnect: "Disconnect",
+  reconnect: "Reconnect",
+  probe: "Probe",
+};
+
+const LOADING_LABELS: Record<EspCommandAction, string> = {
+  connect: "Connecting...",
+  disconnect: "Disconnecting...",
+  reconnect: "Reconnecting...",
+  probe: "Probing...",
+};
+
+type IconName = React.ComponentProps<typeof Ionicons>["name"];
+
 export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
   isConnected = false,
+  status,
+  detail,
+  port,
   count,
-  onConnect,
-  loading = false,
+  onAction,
+  loadingAction = null,
 }) => {
   const connected = isConnected === true;
   const unknown = isConnected === null || isConnected === undefined;
+  const loading = loadingAction !== null;
 
   const icon = loading ? (
     <ActivityIndicator size="small" color="#2563eb" />
@@ -47,12 +71,47 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
       : unknown
         ? "Unknown"
         : "Disconnected";
+  const displayStatus = loadingAction
+    ? LOADING_LABELS[loadingAction]
+    : status || statusText;
+  const actions: {
+    action: EspCommandAction;
+    label: string;
+    icon: IconName;
+    variant: "primary" | "secondary";
+  }[] = connected
+    ? [
+        {
+          action: "disconnect",
+          label: ACTION_LABELS.disconnect,
+          icon: "close-circle-outline",
+          variant: "secondary",
+        },
+        {
+          action: "probe",
+          label: ACTION_LABELS.probe,
+          icon: "pulse-outline",
+          variant: "secondary",
+        },
+        {
+          action: "reconnect",
+          label: ACTION_LABELS.reconnect,
+          icon: "refresh-outline",
+          variant: "primary",
+        },
+      ]
+    : [
+        {
+          action: "connect",
+          label: ACTION_LABELS.connect,
+          icon: "radio-outline",
+          variant: "primary",
+        },
+      ];
+  const mutedDetail = detail || port || NODE_NAMES[count] || "Sensor";
 
   return (
-    <TouchableOpacity
-      onPress={() => onConnect?.(count)}
-      activeOpacity={0.85}
-      disabled={loading}
+    <View
       style={[
         styles.card,
         connected && styles.cardConnected,
@@ -62,7 +121,7 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
       <View style={styles.content}>
         <View style={styles.left}>
           <Text style={styles.title}>Node {count}</Text>
-          <Text style={styles.subtitle}>{NODE_NAMES[count] ?? "Sensor"}</Text>
+          <Text style={styles.subtitle}>{mutedDetail}</Text>
         </View>
 
         <View style={styles.iconWrapper}>{icon}</View>
@@ -74,10 +133,44 @@ export const EspConnectionCard: React.FC<EspConnectionCardProps> = ({
             !connected && !unknown && styles.statusDisconnected,
           ]}
         >
-          {statusText}
+          {displayStatus}
         </Text>
       </View>
-    </TouchableOpacity>
+
+      <View style={styles.actionRow}>
+        {actions.map((item) => {
+          const primary = item.variant === "primary";
+
+          return (
+            <TouchableOpacity
+              key={item.action}
+              activeOpacity={0.85}
+              disabled={loading || !onAction}
+              onPress={() => onAction?.(count, item.action)}
+              style={[
+                styles.actionButton,
+                primary ? styles.actionPrimary : styles.actionSecondary,
+                (loading || !onAction) && styles.actionDisabled,
+              ]}
+            >
+              <Ionicons
+                name={item.icon}
+                size={16}
+                color={primary ? "#ffffff" : "#2563eb"}
+              />
+              <Text
+                style={[
+                  styles.actionText,
+                  primary ? styles.actionTextPrimary : styles.actionTextSecondary,
+                ]}
+              >
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
   );
 };
 
@@ -142,5 +235,43 @@ const styles = StyleSheet.create({
   },
   statusDisconnected: {
     color: "#dc2626",
+  },
+  actionRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  actionButton: {
+    minHeight: 42,
+    minWidth: 132,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  actionPrimary: {
+    backgroundColor: "#2563eb",
+  },
+  actionSecondary: {
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  actionDisabled: {
+    opacity: 0.55,
+  },
+  actionText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  actionTextPrimary: {
+    color: "#ffffff",
+  },
+  actionTextSecondary: {
+    color: "#2563eb",
   },
 });

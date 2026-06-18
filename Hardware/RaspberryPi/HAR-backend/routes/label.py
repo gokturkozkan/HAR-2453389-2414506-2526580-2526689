@@ -7,6 +7,59 @@ from routes.activity import get_all_latest_node_windows, get_latest_window
 label_bp = Blueprint('label', __name__)
 
 
+ACTIVITY_LABELS = {
+    'standing',
+    'sitting',
+    'lying',
+    'walking',
+    'crouching',
+    'x_pose',
+    'punching',
+    'turning',
+}
+ACTIVITY_LABEL_ALIASES = {
+    'x-pose': 'x_pose',
+    'xpose': 'x_pose',
+}
+IMAGE_CANDIDATES = (
+    ('png', 'image/png'),
+    ('jpg', 'image/jpeg'),
+    ('jpeg', 'image/jpeg'),
+)
+
+
+def normalize_label_name(label):
+    text = str(label or '').strip()
+    token = text.lower().replace(' ', '_')
+    canonical = ACTIVITY_LABEL_ALIASES.get(token, token.replace('-', '_'))
+
+    if canonical in ACTIVITY_LABELS:
+        return canonical
+
+    return text
+
+
+def get_label_image(label):
+    normalized_label = normalize_label_name(label)
+
+    for extension, mime_type in IMAGE_CANDIDATES:
+        image_row = db_get(
+            'SELECT data FROM unity_images WHERE name = ?',
+            [f'{normalized_label}.{extension}'],
+        )
+
+        if not image_row or not image_row.get('data'):
+            continue
+
+        image_data = image_row['data']
+        if isinstance(image_data, bytes):
+            return base64.b64encode(image_data).decode('utf-8'), mime_type
+
+        return image_data, mime_type
+
+    return None, None
+
+
 def clear_label():
     db_run('UPDATE labels SET name = ? WHERE id = 1', [''])
 
@@ -16,26 +69,20 @@ def get_label():
     try:
         label_row = db_get('SELECT name FROM labels WHERE id = 1')
         label = label_row['name'] if label_row and label_row.get('name') is not None else ''
+        label = normalize_label_name(label)
 
         if not label:
             return jsonify({'message': 'No activity label available yet'}), 404
 
-        image_row = db_get('SELECT data FROM unity_images WHERE name = ?', [f'{label}.png']) if label else None
-        image_base64 = None
+        image_base64, image_mime = get_label_image(label)
 
         latest_window = get_latest_window()
         latest_node_id = latest_window.get('node_id') if latest_window else None
 
-        if image_row and image_row.get('data'):
-            image_data = image_row['data']
-            if isinstance(image_data, bytes):
-                image_base64 = base64.b64encode(image_data).decode('utf-8')
-            else:
-                image_base64 = image_data
-
         return jsonify({
             'label': label,
             'image': image_base64,
+            'imageMime': image_mime,
             'hasImage': image_base64 is not None,
             'node_id': latest_node_id,
         })
@@ -53,7 +100,7 @@ def update_label():
         if not label or not isinstance(label, str):
             return jsonify({'message': 'Label is required and must be a string'}), 400
 
-        label = label.strip()
+        label = normalize_label_name(label)
         if not label:
             return jsonify({'message': 'Label is required and must be a string'}), 400
 
@@ -95,20 +142,13 @@ def update_label():
             [resolved_node_id, previous_label, label, sensor_data_json, esp_data_json],
         )
 
-        image_row = db_get('SELECT data FROM unity_images WHERE name = ?', [f'{label}.png'])
-        image_base64 = None
-
-        if image_row and image_row.get('data'):
-            image_data = image_row['data']
-            if isinstance(image_data, bytes):
-                image_base64 = base64.b64encode(image_data).decode('utf-8')
-            else:
-                image_base64 = image_data
+        image_base64, image_mime = get_label_image(label)
 
         return jsonify({
             'message': 'Label updated successfully',
             'label': label,
             'image': image_base64,
+            'imageMime': image_mime,
             'hasImage': image_base64 is not None,
             'node_id': resolved_node_id,
             'esp_data': esp_data_json,

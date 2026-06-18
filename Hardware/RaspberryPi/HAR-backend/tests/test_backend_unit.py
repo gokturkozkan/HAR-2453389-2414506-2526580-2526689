@@ -8,6 +8,7 @@ import database
 import routes.activity as activity
 from app import app
 from database import db_get, db_run
+from tdma_control import TdmaControlError
 
 
 def build_window(size=200):
@@ -151,6 +152,93 @@ def test_esp_status_routes_list_update_and_validate_ids(client):
     node = client.get("/esp-status?id=2")
     assert node.status_code == 200
     assert node.get_json() == {"id": 2, "isConnected": True}
+
+
+def test_esp_command_routes_call_tdma_controller(client, monkeypatch):
+    class FakeTdmaController:
+        def __init__(self):
+            self.calls = []
+
+        def get_status(self, node_id):
+            raise TdmaControlError("No runtime status", status_code=404)
+
+        def _response(self, action, node_id, is_connected):
+            self.calls.append((action, node_id))
+            db_run(
+                "UPDATE esp_devices SET is_connected = ? WHERE id = ?",
+                [1 if is_connected else 0, node_id],
+            )
+            return {
+                "id": node_id,
+                "isConnected": is_connected,
+                "status": action.title(),
+                "detail": "fake controller",
+                "name": "wrist",
+                "port": "/dev/rfcomm0",
+                "updatedAt": "2026-01-01T00:00:00+00:00",
+            }
+
+        def connect_node(self, node_id):
+            return self._response("connect", node_id, True)
+
+        def disconnect_node(self, node_id):
+            return self._response("disconnect", node_id, False)
+
+        def reconnect_node(self, node_id):
+            return self._response("reconnect", node_id, True)
+
+        def probe_node(self, node_id):
+            return self._response("probe", node_id, True)
+
+    fake = FakeTdmaController()
+    monkeypatch.setattr("routes.esp.tdma_controller", fake)
+
+    connect = client.post("/esp/1/connect")
+    assert connect.status_code == 200
+    assert connect.get_json()["isConnected"] is True
+    assert db_get("SELECT is_connected FROM esp_devices WHERE id = ?", [1])["is_connected"] == 1
+
+    disconnect = client.post("/esp/1/disconnect")
+    assert disconnect.status_code == 200
+    assert disconnect.get_json()["isConnected"] is False
+    assert db_get("SELECT is_connected FROM esp_devices WHERE id = ?", [1])["is_connected"] == 0
+
+    reconnect = client.post("/esp/1/reconnect")
+    assert reconnect.status_code == 200
+    assert reconnect.get_json()["status"] == "Reconnect"
+
+    probe = client.post("/esp/1/probe")
+    assert probe.status_code == 200
+    assert probe.get_json()["status"] == "Probe"
+
+    assert fake.calls == [
+        ("connect", 1),
+        ("disconnect", 1),
+        ("reconnect", 1),
+        ("probe", 1),
+    ]
+
+
+def test_esp_command_route_returns_controller_errors(client, monkeypatch):
+    class FailingTdmaController:
+        def get_status(self, node_id):
+            raise TdmaControlError("No runtime status", status_code=404)
+
+        def connect_node(self, node_id):
+            raise TdmaControlError(
+                "Node 1 open failed: serial unavailable",
+                status_code=503,
+                node={"id": node_id, "status": "Open failed", "isConnected": False},
+            )
+
+    monkeypatch.setattr("routes.esp.tdma_controller", FailingTdmaController())
+
+    response = client.post("/esp/1/connect")
+
+    assert response.status_code == 503
+    body = response.get_json()
+    assert body["message"] == "Node 1 open failed: serial unavailable"
+    assert body["node"]["status"] == "Open failed"
 
 
 def test_admin_json_routes_are_protected_by_admin_token(client, monkeypatch):

@@ -3,6 +3,7 @@ import {
   Text,
   StyleSheet,
   Image,
+  ImageSourcePropType,
   ActivityIndicator,
   Modal,
   ScrollView,
@@ -14,14 +15,18 @@ import { router } from "expo-router";
 import { useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { labelApi } from "@/apis/labelApi";
 import { ConnectionContext } from "../contexts/ConnectionContext";
+import {
+  ACTIVITY_LABELS,
+  formatActivityLabel,
+  getActivityLabelImage,
+} from "@/constants/activity-labels";
 
 type LabelType = {
   label: string;
   image?: string;
+  imageMime?: string;
   node_id?: number | null;
 };
-
-const relabelOptions = ["lying", "sitting", "standing", "walking"];
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
@@ -34,6 +39,9 @@ export default function HomeScreen() {
 
   const { connection } = useContext(ConnectionContext);
   const { getLabel, sendLabel } = useMemo(() => labelApi(), []);
+  const labelImageSource: ImageSourcePropType | undefined = label?.image
+    ? { uri: `data:${label.imageMime || "image/png"};base64,${label.image}` }
+    : getActivityLabelImage(label?.label);
 
   const fetchLabel = useCallback(async () => {
     if (!connection) return;
@@ -43,7 +51,7 @@ export default function HomeScreen() {
 
       setLabel((prev) => {
         if (prev?.label !== data.label) {
-          setMessage(["success", `Current activity: ${data.label}`]);
+          setMessage(["success", `Current activity: ${formatActivityLabel(data.label)}`]);
         }
         return data;
       });
@@ -73,7 +81,7 @@ export default function HomeScreen() {
         setIsRelabelOpen(false);
         await sendLabel(nextLabel, label?.node_id);
         await fetchLabel();
-        setMessage(["success", `Relabeled as: ${nextLabel}`]);
+        setMessage(["success", `Relabeled as: ${formatActivityLabel(nextLabel)}`]);
       } catch (e: any) {
         setMessage(["error", e.message]);
       } finally {
@@ -113,13 +121,16 @@ export default function HomeScreen() {
                 {loading && <ActivityIndicator size="large" color="#2563eb" />}
 
                 <Text style={styles.activityLabel}>
-                  {label?.label ?? "Waiting for prediction..."}
+                  {label?.label
+                    ? formatActivityLabel(label.label)
+                    : "Waiting for prediction..."}
                 </Text>
 
-                {label?.image ? (
+                {labelImageSource ? (
                   <Image
-                    source={{ uri: `data:image/png;base64,${label.image}` }}
+                    source={labelImageSource}
                     style={styles.labelImage}
+                    resizeMode="contain"
                   />
                 ) : (
                   <View style={styles.emptyImageBox}>
@@ -175,13 +186,13 @@ export default function HomeScreen() {
             <Text style={styles.modalTitle}>Choose correct label</Text>
 
             <ScrollView>
-              {relabelOptions.map((option) => (
+              {ACTIVITY_LABELS.map((option) => (
                 <Pressable
                   key={option}
                   style={styles.optionButton}
                   onPress={() => handleRelabel(option)}
                 >
-                  <Text style={styles.optionText}>{option}</Text>
+                  <Text style={styles.optionText}>{formatActivityLabel(option)}</Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -287,7 +298,6 @@ const styles = StyleSheet.create({
   labelImage: {
     width: 180,
     height: 180,
-    resizeMode: "contain",
   },
   emptyImageBox: {
     width: 160,

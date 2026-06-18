@@ -7,7 +7,7 @@ import sys
 
 from database import init_database, close_database, db_run
 from routes.auth import auth_bp
-from routes.esp import esp_bp
+from routes.esp import esp_bp, tdma_controller
 from routes.admin import admin_bp
 from routes.user import user_bp
 from routes.label import label_bp, clear_label
@@ -112,6 +112,7 @@ def not_found(error):
 def graceful_shutdown(signum, frame):
     print("\nShutting down gracefully...")
     try:
+        tdma_controller.close_all()
         db_run("UPDATE esp_devices SET is_connected = 0")
     except Exception as error:
         print(f"Failed to disconnect ESP devices: {error}")

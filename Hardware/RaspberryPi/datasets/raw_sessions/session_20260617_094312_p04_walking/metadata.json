@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260617_094312_p04_walking",
+  "participant_id": "p04",
+  "activity": "walking",
+  "started_at": "2026-06-17T09:43:12.939808+03:00",
+  "duration_seconds": 180.0,
+  "warmup_seconds": 10.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Walk continuously at one chosen speed. Use natural arm swing and avoid stops, phone handling, sudden turns, or standing pauses during the recording.",
+  "status": "completed",
+  "finished_at": "2026-06-17T09:46:23.306618+03:00",
+  "sample_count": 1793,
+  "node_sample_counts": {
+    "1": 599,
+    "2": 599,
+    "3": 595
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260617_094312_p04_walking/raw_samples.jsonl"
+}

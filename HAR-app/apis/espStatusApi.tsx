@@ -1,5 +1,5 @@
 import { API_URL } from "./api_url";
-import { EspStatus, EspId } from "../app/types/espTypes";
+import { EspStatus, EspId, EspCommandAction } from "../app/types/espTypes";
 
 export const espStatusApi = () => {
   const getEspStatus = async (id: number): Promise<EspStatus> => {
@@ -33,5 +33,23 @@ export const espStatusApi = () => {
       .sort((a: EspId, b: EspId) => a.id - b.id);
   };
 
-  return { getEspStatus, getEsp };
+  const runEspCommand = async (
+    id: number,
+    action: EspCommandAction
+  ): Promise<EspStatus> => {
+    const response = await fetch(
+      `${API_URL}/esp/${encodeURIComponent(id)}/${action}`,
+      { method: "POST" }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.message || `Error running ${action} for ESP ${id}`);
+    }
+
+    return data;
+  };
+
+  return { getEspStatus, getEsp, runEspCommand };
 };

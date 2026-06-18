@@ -309,6 +309,53 @@ def split_ids_from_records(records, split_by="session", seed=42, train_ratio=0.7
         key_name = "session_id"
         ids = sorted({str(record.get(key_name, "unknown")) for record in records})
 
+    if split_by == "session":
+        grouped_ids = defaultdict(set)
+
+        for record in records:
+            grouped_ids[str(record.get("activity", "unknown"))].add(str(record.get(key_name, "unknown")))
+
+        train_ids = []
+        val_ids = []
+        test_ids = []
+
+        for activity in sorted(grouped_ids):
+            class_rng = random.Random(f"{seed}:{activity}")
+            class_ids = sorted(grouped_ids[activity])
+            class_rng.shuffle(class_ids)
+            n_ids = len(class_ids)
+
+            if n_ids == 0:
+                continue
+
+            if n_ids == 1:
+                train_ids.extend(class_ids)
+                continue
+
+            train_count = max(1, int(round(n_ids * train_ratio)))
+            val_count = int(round(n_ids * val_ratio))
+
+            if train_count >= n_ids:
+                train_count = n_ids - 1
+
+            remaining = n_ids - train_count
+
+            if remaining > 1 and val_count == 0:
+                val_count = 1
+
+            if val_count >= remaining:
+                val_count = remaining - 1
+
+            train_ids.extend(class_ids[:train_count])
+            val_ids.extend(class_ids[train_count:train_count + val_count])
+            test_ids.extend(class_ids[train_count + val_count:])
+
+        return split_by, {
+            "train": sorted(train_ids),
+            "val": sorted(val_ids),
+            "test": sorted(test_ids),
+        }
+
     rng = random.Random(seed)
     rng.shuffle(ids)
     n_ids = len(ids)

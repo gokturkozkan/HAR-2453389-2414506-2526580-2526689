@@ -20,6 +20,7 @@ python3 Hardware/RaspberryPi/build_window_dataset.py \
   --split-by session \
   --seed 42 \
   --stride-seconds 3.0 \
+  --max-source-gap-seconds 1.5 \
   --window-seconds 6.0 \
   --timesteps 200
 ```

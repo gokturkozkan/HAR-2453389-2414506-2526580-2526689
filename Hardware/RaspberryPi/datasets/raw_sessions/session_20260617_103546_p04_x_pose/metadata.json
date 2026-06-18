@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260617_103546_p04_x_pose",
+  "participant_id": "p04",
+  "activity": "x_pose",
+  "started_at": "2026-06-17T10:35:46.928952+03:00",
+  "duration_seconds": 180.0,
+  "warmup_seconds": 10.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Stand in an X-pose before warmup ends: arms raised/spread and feet apart. Hold the pose steadily and avoid walking or turning.",
+  "status": "completed",
+  "finished_at": "2026-06-17T10:38:57.649919+03:00",
+  "sample_count": 1793,
+  "node_sample_counts": {
+    "1": 600,
+    "2": 597,
+    "3": 596
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260617_103546_p04_x_pose/raw_samples.jsonl"
+}

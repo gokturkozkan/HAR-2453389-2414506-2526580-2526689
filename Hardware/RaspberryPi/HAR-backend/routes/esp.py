@@ -1,7 +1,41 @@
 from flask import Blueprint, request, jsonify
 from database import db_all, db_run, db_get
+from tdma_control import TdmaControlError, TdmaBackendController
 
 esp_bp = Blueprint('esp', __name__)
+tdma_controller = TdmaBackendController()
+
+
+def enrich_with_runtime_status(device):
+    try:
+        runtime = tdma_controller.get_status(device['id'])
+    except TdmaControlError:
+        return device
+
+    if not runtime.get('updatedAt'):
+        return device
+
+    enriched = {
+        **device,
+        'status': runtime.get('status'),
+        'detail': runtime.get('detail'),
+        'name': runtime.get('name'),
+        'port': runtime.get('port'),
+        'updatedAt': runtime.get('updatedAt'),
+    }
+
+    if runtime.get('latestLine'):
+        enriched['latestLine'] = runtime.get('latestLine')
+
+    return enriched
+
+
+def command_response(handler, device_id):
+    try:
+        result = handler(device_id)
+        return jsonify(result)
+    except TdmaControlError as error:
+        return jsonify(error.to_response()), error.status_code
 
 @esp_bp.route('/esp-status', methods=['GET'])
 def get_esp_status():
@@ -26,13 +60,13 @@ def get_esp_status():
                 'id': row['id'],
                 'isConnected': bool(row['isConnected'])
             }
-            return jsonify(device)
+            return jsonify(enrich_with_runtime_status(device))
         
         rows = db_all(
             'SELECT id, is_connected as isConnected FROM esp_devices ORDER BY id ASC'
         )
         devices = [
-            {'id': r['id'], 'isConnected': bool(r['isConnected'])}
+            enrich_with_runtime_status({'id': r['id'], 'isConnected': bool(r['isConnected'])})
             for r in rows
         ]
         return jsonify(devices)
@@ -98,3 +132,23 @@ def init_esp_devices():
     except Exception as error:
         print(f'Error initializing ESP devices: {error}')
         return jsonify({'message': 'Error initializing ESP devices'}), 500
+
+
+@esp_bp.route('/esp/<int:device_id>/connect', methods=['POST'])
+def connect_esp_device(device_id):
+    return command_response(tdma_controller.connect_node, device_id)
+
+
+@esp_bp.route('/esp/<int:device_id>/disconnect', methods=['POST'])
+def disconnect_esp_device(device_id):
+    return command_response(tdma_controller.disconnect_node, device_id)
+
+
+@esp_bp.route('/esp/<int:device_id>/reconnect', methods=['POST'])
+def reconnect_esp_device(device_id):
+    return command_response(tdma_controller.reconnect_node, device_id)
+
+
+@esp_bp.route('/esp/<int:device_id>/probe', methods=['POST'])
+def probe_esp_device(device_id):
+    return command_response(tdma_controller.probe_node, device_id)

@@ -1,0 +1,40 @@
+{
+  "session_id": "session_20260617_100107_p04_crouching",
+  "participant_id": "p04",
+  "activity": "crouching",
+  "started_at": "2026-06-17T10:01:07.533620+03:00",
+  "duration_seconds": 180.0,
+  "warmup_seconds": 10.0,
+  "node_layout": {
+    "1": "wrist",
+    "2": "chest",
+    "3": "ankle"
+  },
+  "node_ports": {
+    "1": "/dev/rfcomm0",
+    "2": "/dev/rfcomm1",
+    "3": "/dev/rfcomm2"
+  },
+  "features": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz",
+    "mx",
+    "my",
+    "mz"
+  ],
+  "notes": "",
+  "activity_guideline": "Use a consistent stand-crouch cycle: stand, crouch/squat, hold briefly, stand again. Do not sit on a chair, kneel, or pause for a long time.",
+  "status": "completed",
+  "finished_at": "2026-06-17T10:04:18.164066+03:00",
+  "sample_count": 1794,
+  "node_sample_counts": {
+    "1": 597,
+    "2": 600,
+    "3": 597
+  },
+  "samples_path": "/home/serene/3005/HAR-2453389-2414506-2526580-2526689-server-fixing/Hardware/RaspberryPi/datasets/raw_sessions/session_20260617_100107_p04_crouching/raw_samples.jsonl"
+}

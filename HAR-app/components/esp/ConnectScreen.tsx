@@ -1,4 +1,11 @@
-import React, { useContext, useEffect, useState, useCallback, useMemo } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   View,
   StyleSheet,
@@ -8,11 +15,28 @@ import {
   Pressable,
 } from "react-native";
 import { EspConnectionTable } from "./EspConnectionTable";
-import { EspId, EspStatus } from "@/app/types/espTypes";
+import { EspCommandAction, EspId, EspStatus } from "@/app/types/espTypes";
 import { espStatusApi } from "@/apis/espStatusApi";
 import { ConnectionContext } from "../../app/contexts/ConnectionContext";
 
 const NODE_IDS = [1, 2, 3];
+const STATUS_TIMEOUT_MS = 4000;
+const NODE_STATUS_TIMEOUT_MS = 3000;
+const ACTION_TIMEOUT_MS: Record<EspCommandAction, number> = {
+  connect: 30000,
+  disconnect: 10000,
+  reconnect: 35000,
+  probe: 8000,
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out")), ms)
+    ),
+  ]);
+};
 
 export default function ConnectScreen() {
   const { width } = useWindowDimensions();
@@ -21,29 +45,27 @@ export default function ConnectScreen() {
   const [esps, setEsps] = useState<EspStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    id: number;
+    action: EspCommandAction;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const pendingActionRef = useRef(false);
 
   const api = useMemo(() => espStatusApi(), []);
   const { setConnection } = useContext(ConnectionContext);
 
-  const withTimeout = async <T,>(promise: Promise<T>, ms = 4000): Promise<T> => {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out")), ms)
-      ),
-    ]);
-  };
-
   const fetchEsps = useCallback(
-    async (initial = false) => {
+    async (initial = false, force = false) => {
+      if (!initial && pendingActionRef.current && !force) return;
+
       if (initial) setLoading(true);
       else setRefreshing(true);
 
       try {
         setErrorMessage(null);
 
-        const data = await withTimeout(api.getEsp(), 4000);
+        const data = await withTimeout(api.getEsp(), STATUS_TIMEOUT_MS);
 
         const threeNodes = data
           .filter((d: EspId) => NODE_IDS.includes(d.id))
@@ -56,7 +78,7 @@ export default function ConnectScreen() {
 
         const statusResults = await Promise.allSettled(
           safeNodes.map((d: EspId) =>
-            withTimeout(api.getEspStatus(d.id), 3000)
+            withTimeout(api.getEspStatus(d.id), NODE_STATUS_TIMEOUT_MS)
           )
         );
 
@@ -96,6 +118,51 @@ export default function ConnectScreen() {
       }
     },
     [api, setConnection]
+  );
+
+  const handleNodeAction = useCallback(
+    async (id: number, action: EspCommandAction) => {
+      if (pendingActionRef.current) return;
+
+      pendingActionRef.current = true;
+      setPendingAction({ id, action });
+      setErrorMessage(null);
+
+      try {
+        const updatedNode = await withTimeout(
+          api.runEspCommand(id, action),
+          ACTION_TIMEOUT_MS[action]
+        );
+
+        setEsps((current) =>
+          current.map((esp) =>
+            esp.id === id
+              ? {
+                  ...esp,
+                  ...updatedNode,
+                }
+              : esp
+          )
+        );
+
+        await fetchEsps(false, true);
+      } catch (e: any) {
+        console.error("ESP command error:", e);
+        const message = e?.message || `Could not ${action} node ${id}`;
+
+        try {
+          await fetchEsps(false, true);
+        } catch {
+          setConnection(false);
+        } finally {
+          setErrorMessage(message);
+        }
+      } finally {
+        pendingActionRef.current = false;
+        setPendingAction(null);
+      }
+    },
+    [api, fetchEsps, setConnection]
   );
 
   useEffect(() => {
@@ -149,8 +216,8 @@ export default function ConnectScreen() {
 
         <EspConnectionTable
           esps={esps}
-          onConnect={(id: number) => fetchEsps(false)}
-          loadingId={null}
+          onAction={handleNodeAction}
+          pendingAction={pendingAction}
         />
 
         <Pressable style={styles.retryButton} onPress={() => fetchEsps(false)}>

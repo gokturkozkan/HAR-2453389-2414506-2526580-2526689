@@ -27,9 +27,29 @@ def build_arg_parser():
     parser.add_argument("--window-seconds", type=float, default=WINDOW_SECONDS)
     parser.add_argument("--timesteps", type=int, default=MODEL_TIMESTEPS)
     parser.add_argument("--stride-seconds", type=float, default=3.0)
+    parser.add_argument("--max-source-gap-seconds", type=float, default=1.5)
     parser.add_argument("--split-by", choices=("participant", "session"), default="participant")
     parser.add_argument("--seed", type=int, default=42)
     return parser
+
+
+def has_source_gap(rows, start_time, end_time, max_source_gap_seconds):
+    if max_source_gap_seconds is None or max_source_gap_seconds <= 0:
+        return False
+
+    times = [
+        row["t_host"]
+        for row in rows
+        if start_time <= row["t_host"] <= end_time
+    ]
+
+    if len(times) < 2:
+        return True
+
+    return any(
+        next_time - previous_time > max_source_gap_seconds
+        for previous_time, next_time in zip(times, times[1:])
+    )
 
 
 def build_windows_for_session(session, args, running_index):
@@ -60,6 +80,7 @@ def build_windows_for_session(session, args, running_index):
 
     records = []
     window_index = 0
+    skipped_windows = 0
     start_time = common_start
 
     while start_time <= latest_start + 1e-6:
@@ -67,6 +88,15 @@ def build_windows_for_session(session, args, running_index):
         valid = True
 
         for node_id in NODE_ORDER:
+            if has_source_gap(
+                grouped[node_id],
+                start_time,
+                start_time + args.window_seconds,
+                args.max_source_gap_seconds,
+            ):
+                valid = False
+                break
+
             resampled = resample_node(
                 grouped[node_id],
                 start_time,
@@ -102,6 +132,8 @@ def build_windows_for_session(session, args, running_index):
                 "features_per_node": list(FEATURE_KEYS),
                 "windows_by_node": windows_by_node,
             })
+        else:
+            skipped_windows += 1
 
         window_index += 1
         start_time += args.stride_seconds
@@ -110,6 +142,7 @@ def build_windows_for_session(session, args, running_index):
         "session_id": metadata.get("session_id"),
         "status": "ok",
         "windows": len(records),
+        "skipped_windows": skipped_windows,
         "common_seconds": round(common_end - common_start, 3),
         "sample_counts": {str(node_id): len(grouped[node_id]) for node_id in NODE_ORDER},
     }
@@ -157,6 +190,7 @@ def main():
         model_timesteps=args.timesteps,
     )
     summary["stride_seconds"] = float(args.stride_seconds)
+    summary["max_source_gap_seconds"] = float(args.max_source_gap_seconds)
     summary["class_counts"] = class_counts_for_records(all_records)
     summary["session_summaries"] = session_summaries
     summary["split"] = split_summary
