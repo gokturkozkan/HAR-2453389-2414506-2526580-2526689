@@ -47,7 +47,7 @@ The system targets use cases such as healthcare monitoring, rehabilitation, spor
 
 ## System Architecture
 
-The architecture follows a modular pipeline, as detailed in the SDD’s logical, process, development, and deployment views.
+The architecture follows a modular pipeline.
 
 ### High-Level Components
 
@@ -69,7 +69,7 @@ The architecture follows a modular pipeline, as detailed in the SDD’s logical,
   - Updates dataset files whenever the user corrects an activity label via the app.
 
 - **Mobile Activity Labeling App**
-  - Provides login, sensor connection status, and real-time activity labeling UI (see UI mockups on **SRS pages 6–9**).
+  - Provides login, sensor connection status, and real-time activity labeling UI.
   - Shows system-predicted labels and allows manual correction through a dropdown menu.
 
 - **Unity Application**
@@ -78,8 +78,6 @@ The architecture follows a modular pipeline, as detailed in the SDD’s logical,
   - Maintained separately as the [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game) dependency.
 
 ### Data Flow (Overview)
-
-As shown in the **Level-0 DFD and activity diagrams in the SDD (pages 5–11)**:
 
 1. User logs in or registers through the mobile app.
 2. Mobile app requests sensor connection via the hub.
@@ -150,9 +148,6 @@ As shown in the **Level-0 DFD and activity diagrams in the SDD (pages 5–11)**:
 ├── Mobile/                  # Activity Labeling App (React Native / Android)
 │   └── assets/
 ├── data/                    # Dataset and logs
-├── docs/                    # SRS, SDD, etc..
-│   ├── CNG491-SRS-....pdf   # Software Requirements Specification (SRS)
-│   └── CNG491-SDD-....pdf   # Software Design Description (SDD)
 └── README.md                # You are here :)
 ```
 
