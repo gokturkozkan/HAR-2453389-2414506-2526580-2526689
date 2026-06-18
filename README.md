@@ -3,7 +3,7 @@
 
 Edge-computable Human Activity Recognition system built with wearable IMU sensors, a Raspberry Pi hub, a mobile Activity Labeling App, and a Unity-based visualisation environment. The system collects multimodal motion data (accelerometer + gyroscope), performs lightweight on-device ML inference, and supports interactive activity labeling for dataset creation and model improvement.
 
-The Unity visualisation/game component is used within the system loop, but it is maintained as a separate dependency in [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game).
+The Unity visualisation/game component is maintained as a separate dependency in [HARVR-Game](https://github.com/gokturkozkan/HARVR-Game).
 
 ---
 
